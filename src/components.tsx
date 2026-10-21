@@ -1,6 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getPhoto } from './db';
-import type { Taxon } from './model';
+import type { Observation, ObservationKind, Taxon } from './model';
+
+export const OBS_KINDS: { id: ObservationKind; label: string }[] = [
+  { id: 'note', label: 'Note' },
+  { id: 'condition', label: 'Condition' },
+  { id: 'flowering', label: 'Flowering' },
+  { id: 'fruiting', label: 'Fruiting or berries' },
+  { id: 'sighting', label: 'Wildlife sighting' },
+  { id: 'maintenance', label: 'Maintenance done' },
+];
+
+export const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/** What a log entry was, e.g. 'Flowering' or '2 photos'. */
+export function obsLabel(o: Observation) {
+  return o.kind === 'photo' ? `${o.photoIds.length} photo${o.photoIds.length > 1 ? 's' : ''}` : OBS_KINDS.find((k) => k.id === o.kind)?.label;
+}
 
 export function Thumb({ id, onOpen }: { id: string; onOpen?: (id: string) => void }) {
   const [url, setUrl] = useState<string | null>(null);

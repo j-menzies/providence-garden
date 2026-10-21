@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
 
 const SHOTS = process.env.SHOTS ?? 'test-results';
@@ -257,6 +258,48 @@ test('register starts with rough positions to check on site', async ({ page }) =
   await page.fill('#register-search', 'Roadside Bed East');
   await page.getByRole('button', { name: /Roadside Bed East Side/ }).first().click();
   await expect(page.getByRole('button', { name: 'Put it on the map' })).toBeVisible();
+});
+
+test('items report lists everything and filters it', async ({ page }) => {
+  const count = page.locator('#report-count');
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  // Log something so one item has a latest entry.
+  await page.getByRole('button', { name: /Register/ }).click();
+  await page.getByRole('tab', { name: /Rough/ }).click();
+  await page.getByRole('button', { name: /Island silver birch 1/ }).click();
+  await page.selectOption('#obs-kind', 'condition');
+  await page.locator('#obs-text').fill('Light prune due');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('button', { name: 'Close panel' }).click();
+
+  await page.getByRole('button', { name: 'Reports' }).click();
+  await expect(count).toHaveText('108 of 108 items');
+  await page.selectOption('#report-status', 'rough');
+  await expect(count).toHaveText('15 of 108 items');
+  // Dingley Dell's rough items: two air vents and five birches.
+  await page.selectOption('#report-area', 'bed-dingley-dell');
+  await expect(count).toHaveText('7 of 108 items');
+  await page.screenshot({ path: `${SHOTS}/13-report.png` });
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(count).toHaveText('108 of 108 items');
+  await page.selectOption('#report-type', 'tree');
+  await page.fill('#report-search', 'birch');
+  await expect(count).toHaveText('8 of 108 items');
+  await page.selectOption('#report-sort', 'recent');
+  await expect(page.locator('.report-table tbody tr').first()).toContainText('Condition: Light prune due');
+
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download spreadsheet' }).click();
+  const lines = readFileSync((await (await dl).path())!, 'utf8').split('\r\n');
+  expect(lines).toHaveLength(9);
+  expect(lines[0]).toMatch(/^﻿"Name","Type"/);
+  expect(lines[1]).toContain('"Island silver birch 1","Tree","Plants","Dingley Dell (the island)","Betula pendula","Silver birch"');
+  expect(lines[1]).toContain('"Condition","Light prune due","1","0"');
+
+  // Tapping an item opens it.
+  await page.getByRole('button', { name: 'Island silver birch 1', exact: true }).click();
+  await expect(page.locator('.panel-head h2')).toHaveText('Island silver birch 1');
 });
 
 test('desktop dark layout', async ({ browser }) => {

@@ -5,9 +5,11 @@ import { deleteFeature, ensureSeeded, ensureStartPositions, getMeta, loadAll, ne
 import { centre, inArea, isArea, measure, openParts, pointInPolygon, preparePhoto, shape, vertices, watchFix, type Fix } from './geo';
 import { buildBackup, deliverFile, restoreBackup, toGeoJSON } from './backup';
 import type { Feature, Geometry, Observation, ObservationKind, Party, Taxon } from './model';
-import { PhotoViewer, StatusChip, TaxonPicker, Thumb } from './components';
+import { OBS_KINDS, PhotoViewer, StatusChip, TaxonPicker, Thumb, fmtDate, obsLabel } from './components';
+import { ItemsReport } from './Reports';
 
-type Panel = null | 'layers' | 'register' | 'menu' | 'new' | 'capture' | 'feature';
+/** 'reports' fills the screen; the rest open in the side sheet. */
+type Panel = null | 'layers' | 'register' | 'reports' | 'menu' | 'new' | 'capture' | 'feature';
 
 interface Capture {
   /** Existing feature being placed, or undefined for a new one. */
@@ -21,15 +23,6 @@ interface Capture {
   /** Geometry drawn or tapped on the map. Points without this use the GPS fix. */
   geometry: Geometry | null;
 }
-
-const OBS_KINDS: { id: ObservationKind; label: string }[] = [
-  { id: 'note', label: 'Note' },
-  { id: 'condition', label: 'Condition' },
-  { id: 'flowering', label: 'Flowering' },
-  { id: 'fruiting', label: 'Fruiting or berries' },
-  { id: 'sighting', label: 'Wildlife sighting' },
-  { id: 'maintenance', label: 'Maintenance done' },
-];
 
 type Pt = [number, number];
 
@@ -56,7 +49,6 @@ function addRing(rings: DraftRing[], ring: Pt[], kind: 'part' | 'hole'): DraftRi
   return hole < 0 ? null : [...rings, { ring, hole }];
 }
 
-const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
 export default function App() {
   const [features, setFeatures] = useState<Feature[]>([]);
@@ -385,6 +377,9 @@ export default function App() {
             Register
             {unplaced.length ? <span className="badge" aria-label={`${unplaced.length} not yet on the map`}>{unplaced.length}</span> : null}
           </button>
+          <button type="button" className={`nav-btn ${panel === 'reports' ? 'on' : ''}`} onClick={() => setPanel(panel === 'reports' ? null : 'reports')}>
+            Reports
+          </button>
           <button type="button" className={`nav-btn ${panel === 'layers' ? 'on' : ''}`} onClick={() => setPanel(panel === 'layers' ? null : 'layers')}>
             Layers
           </button>
@@ -408,7 +403,7 @@ export default function App() {
           editGeometry={editGeometry}
           userFix={fix}
           flyTo={flyTo}
-          panelOpen={panel !== null}
+          panelOpen={panel !== null && panel !== 'reports'}
           onSelect={select}
           onMapTap={onMapTap}
           onEditChange={setEditGeometry}
@@ -529,7 +524,9 @@ export default function App() {
           </div>
         ) : null}
 
-        {panel ? (
+        {panel === 'reports' ? <ItemsReport features={features} observations={observations} taxa={taxonById} onOpen={openFeature} onClose={() => setPanel(null)} /> : null}
+
+        {panel && panel !== 'reports' ? (
           <aside className="sheet" aria-label="Panel" key={`${panel}-${panel === 'feature' ? selectedId : ''}`}>
             {panel === 'new' ? <NewPanel onPick={(id) => beginCapture(id)} onClose={() => setPanel(null)} /> : null}
 
@@ -1005,7 +1002,7 @@ function FeaturePanel(p: {
             {p.observations.map((o) => (
               <li key={o.id}>
                 <span className="log-date num">{fmtDate(o.at)}</span>
-                <span className="log-kind">{o.kind === 'photo' ? `${o.photoIds.length} photo${o.photoIds.length > 1 ? 's' : ''}` : OBS_KINDS.find((k) => k.id === o.kind)?.label}</span>
+                <span className="log-kind">{obsLabel(o)}</span>
                 {o.text ? <span className="log-text">{o.text}</span> : null}
               </li>
             ))}
