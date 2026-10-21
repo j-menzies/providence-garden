@@ -122,6 +122,6 @@ export function TaxonPicker({ taxa, value, onChange, onCreate }: { taxa: Taxon[]
 }
 
 export function StatusChip({ status, accuracy }: { status: string; accuracy?: number }) {
-  const label = status === 'unplaced' ? 'Not on map' : status === 'rough' ? `Rough ±${Math.round(accuracy ?? 0)}m` : 'Placed';
+  const label = status === 'unplaced' ? 'Not on map' : status === 'rough' ? (accuracy ? `Rough ±${Math.round(accuracy)}m` : 'Rough') : 'Placed';
   return <span className={`chip chip-${status}`}>{label}</span>;
 }

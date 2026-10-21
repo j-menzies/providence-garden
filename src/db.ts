@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { Feature, Observation, Party, PhotoRecord, Taxon } from './model';
 import { SEED_PARTIES, SEED_TAXA, seedFeatures } from './seed';
+import { START_POSITIONS } from './positions';
 
 interface GardenDB extends DBSchema {
   features: { key: string; value: Feature };
@@ -46,6 +47,20 @@ export async function ensureSeeded() {
   for (const t of SEED_TAXA) await tx.objectStore('taxa').put(t);
   for (const p of SEED_PARTIES) await tx.objectStore('parties').put(p);
   await tx.objectStore('meta').put({ key: 'seededAt', value: now });
+  await tx.done;
+}
+
+/** Puts register entries that are still off the map at their starting positions, once. Marked rough. */
+export async function ensureStartPositions() {
+  if (await getMeta('startPositionsAt')) return;
+  const d = await db();
+  const now = new Date().toISOString();
+  const tx = d.transaction(['features', 'meta'], 'readwrite');
+  for (const [id, geometry] of Object.entries(START_POSITIONS)) {
+    const f = await tx.objectStore('features').get(id);
+    if (f?.positionStatus === 'unplaced') await tx.objectStore('features').put({ ...f, geometry, positionStatus: 'rough', updatedAt: now });
+  }
+  await tx.objectStore('meta').put({ key: 'startPositionsAt', value: now });
   await tx.done;
 }
 

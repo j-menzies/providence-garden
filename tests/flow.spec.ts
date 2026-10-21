@@ -8,6 +8,19 @@ async function tapMap(page: Page, dx: number, dy: number) {
   await page.mouse.click(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy);
 }
 
+/** Starting positions cover the garden, so tests that tap shapes they draw move off it first. */
+async function panAway(page: Page) {
+  const box = (await page.getByTestId('map').boundingBox())!;
+  const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+  for (let i = 0; i < 2; i++) {
+    await page.mouse.move(x - 150, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 150, y, { steps: 10 });
+    await page.mouse.up();
+  }
+  await page.waitForTimeout(1000);
+}
+
 test('capture, refine, place from register, back up', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -93,6 +106,7 @@ test('capture, refine, place from register, back up', async ({ page }) => {
 test('lines show on the map and can be tapped', async ({ page }) => {
   await page.goto('./');
   await expect(page.locator('.loading')).toBeHidden();
+  await panAway(page);
   // A cable run is dashed and a hedge is solid; they're drawn by separate map layers.
   for (const [type, name, dy] of [['Cable run', 'Cable to the pump', -60], ['Hedge', 'Yew hedge', 60]] as const) {
     await page.getByRole('button', { name: 'Capture' }).click();
@@ -120,6 +134,7 @@ const areaIn = async (page: Page, selector: string) => Number((await page.locato
 test('moat with islands cut out of it', async ({ page }) => {
   await page.goto('./');
   await expect(page.locator('.loading')).toBeHidden();
+  await panAway(page);
   await page.getByRole('button', { name: 'Capture' }).click();
   await page.getByRole('button', { name: 'Moat or pond' }).click();
   for (const [dx, dy] of [[-60, -60], [60, -60], [60, 60], [-60, 60]]) await tapMap(page, dx, dy);
@@ -180,6 +195,68 @@ test('moat with islands cut out of it', async ({ page }) => {
   expect(twoIslands).toBeLessThan(refined);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('.panel-sub .num')).toHaveText(`${twoIslands} m²`);
+});
+
+test('an area in separate parts, like Riverside Gardens', async ({ page }) => {
+  const title = page.locator('.panel-head h2');
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  await panAway(page);
+  await page.getByRole('button', { name: 'Capture' }).click();
+  await page.getByRole('button', { name: 'Bed', exact: true }).click();
+  for (const [dx, dy] of [[-90, -30], [-30, -30], [-30, 30], [-90, 30]]) await tapMap(page, dx, dy);
+  await page.getByRole('button', { name: 'Add a part' }).click();
+  await expect(page.getByText('Another part of the new bed')).toBeVisible();
+  for (const [dx, dy] of [[30, -30], [90, -30], [90, 30], [30, 30]]) await tapMap(page, dx, dy);
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.locator('.pos-box span')).toHaveText(/m² in 2 parts/);
+  await page.fill('#capture-name', 'Split bed');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(title).toHaveText('Split bed');
+  await page.waitForTimeout(1000);
+  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.screenshot({ path: `${SHOTS}/11-parts.png` });
+
+  // Saving zooms in on the middle: the parts are 80-240px either side of the centre, with a gap between.
+  for (const dx of [-160, 160]) {
+    await expect(async () => {
+      await tapMap(page, dx, 0);
+      await expect(title).toHaveText('Split bed', { timeout: 1000 });
+    }).toPass();
+    await page.getByRole('button', { name: 'Close panel' }).click();
+  }
+  await tapMap(page, 0, 0);
+  await page.waitForTimeout(500);
+  await expect(title).toBeHidden();
+
+  // A third part from the panel; Refine then has handles on every part's corners.
+  await tapMap(page, 160, 0);
+  await page.getByRole('button', { name: 'Add a part' }).click();
+  await expect(page.getByText('Another part of Split bed')).toBeVisible();
+  await page.waitForTimeout(1000);
+  for (const [dx, dy] of [[-30, -150], [30, -150], [30, -100]]) await tapMap(page, dx, dy);
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.locator('.pos-box span')).toHaveText(/in 3 parts/);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: 'Refine position' }).click();
+  await expect(page.locator('.handle')).toHaveCount(11);
+});
+
+test('register starts with rough positions to check on site', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${SHOTS}/12-start.png` });
+  await page.getByRole('button', { name: /Register/ }).click();
+  await page.getByRole('tab', { name: 'Rough (15)' }).click();
+  await page.getByRole('button', { name: /Riverside Gardens/ }).click();
+  await expect(page.locator('.panel-sub .chip')).toHaveText('Rough');
+  await expect(page.locator('.panel-sub .num')).toHaveText(/\d+ m²/);
+  // Entries nobody could place from the imagery stay in the register to place.
+  await page.getByRole('button', { name: /Register/ }).click();
+  await page.fill('#register-search', 'Roadside Bed East');
+  await page.getByRole('button', { name: /Roadside Bed East Side/ }).first().click();
+  await expect(page.getByRole('button', { name: 'Put it on the map' })).toBeVisible();
 });
 
 test('desktop dark layout', async ({ browser }) => {

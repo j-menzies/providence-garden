@@ -6,7 +6,9 @@ export type GeometryKind = 'point' | 'line' | 'polygon';
 export type Geometry =
   | { type: 'Point'; coordinates: [number, number] }
   | { type: 'LineString'; coordinates: [number, number][] }
-  | { type: 'Polygon'; coordinates: [number, number][][] };
+  | { type: 'Polygon'; coordinates: [number, number][][] }
+  /** An area in separate pieces, such as Riverside Gardens. */
+  | { type: 'MultiPolygon'; coordinates: [number, number][][][] };
 
 /** How much we trust a feature's position. */
 export type PositionStatus = 'unplaced' | 'rough' | 'refined';

@@ -63,14 +63,21 @@ export function pointInPolygon([x, y]: Pt, ring: Pt[]) {
   return inside;
 }
 
-/** Inside the outer edge of a polygon and not in any of its holes. */
-export function inPolygon(pt: Pt, rings: Pt[][]) {
-  return pointInPolygon(pt, rings[0]) && !rings.slice(1).some((hole) => pointInPolygon(pt, hole));
+export type Area = Extract<Geometry, { type: 'Polygon' | 'MultiPolygon' }>;
+
+export function isArea(g: Geometry | null): g is Area {
+  return g?.type === 'Polygon' || g?.type === 'MultiPolygon';
 }
 
-/** Rings without the closing point repeated. */
-export function openRings(g: Extract<Geometry, { type: 'Polygon' }>): Pt[][] {
-  return g.coordinates.map((r) => r.slice(0, -1));
+/** The pieces of an area, each an outer edge then any holes, without the closing point repeated. */
+export function openParts(g: Area): Pt[][][] {
+  const parts = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  return parts.map((rings) => rings.map((r) => r.slice(0, -1)));
+}
+
+/** Inside one of the pieces of an area and not in any of its holes. */
+export function inArea(pt: Pt, g: Area) {
+  return openParts(g).some((rings) => pointInPolygon(pt, rings[0]) && !rings.slice(1).some((hole) => pointInPolygon(pt, hole)));
 }
 
 /** Positive when the ring runs anticlockwise. */
@@ -81,18 +88,22 @@ function signedArea(ring: Pt[]) {
 }
 
 /**
- * A polygon from open rings: the outer edge first, then any holes (an island in the moat).
- * Wound as RFC 7946 asks, outer anticlockwise and holes clockwise, because MapLibre fills a
- * hole that runs the same way as the outer edge.
+ * Closes the rings of one piece, wound as RFC 7946 asks: outer anticlockwise and holes clockwise,
+ * because MapLibre fills a hole that runs the same way as the outer edge.
  */
-export function polygon(rings: Pt[][]): Geometry {
-  return {
-    type: 'Polygon',
-    coordinates: rings.map((r, i) => {
-      const wound = signedArea(r) > 0 === (i === 0) ? r : [...r].reverse();
-      return [...wound, wound[0]];
-    }),
-  };
+function wind(rings: Pt[][]): Pt[][] {
+  return rings.map((r, i) => {
+    const wound = signedArea(r) > 0 === (i === 0) ? r : [...r].reverse();
+    return [...wound, wound[0]];
+  });
+}
+
+/**
+ * An area from open rings, grouped into pieces: each piece is an outer edge then any holes
+ * (an island in the moat). One piece makes a Polygon, several make a MultiPolygon.
+ */
+export function shape(parts: Pt[][][]): Area {
+  return parts.length === 1 ? { type: 'Polygon', coordinates: wind(parts[0]) } : { type: 'MultiPolygon', coordinates: parts.map(wind) };
 }
 
 const R = 6371008.8;
@@ -118,7 +129,7 @@ export function ringArea(ring: Pt[]) {
 
 export function measure(g: Geometry | null): string | null {
   if (!g) return null;
-  if (g.type === 'Polygon') return `${g.coordinates.reduce((s, r, i) => s + (i ? -1 : 1) * ringArea(r), 0).toFixed(0)} m²`;
+  if (isArea(g)) return `${openParts(g).reduce((s, rings) => s + rings.reduce((t, r, i) => t + (i ? -1 : 1) * ringArea([...r, r[0]]), 0), 0).toFixed(0)} m²`;
   if (g.type === 'LineString') {
     let d = 0;
     for (let i = 1; i < g.coordinates.length; i++) d += distance(g.coordinates[i - 1], g.coordinates[i]);
@@ -129,24 +140,25 @@ export function measure(g: Geometry | null): string | null {
 
 export function centre(g: Geometry): Pt {
   if (g.type === 'Point') return g.coordinates;
-  const pts = g.type === 'Polygon' ? g.coordinates[0].slice(0, -1) : g.coordinates;
+  const pts = isArea(g) ? openParts(g).flatMap((rings) => rings[0]) : g.coordinates;
   const n = pts.length;
   return [pts.reduce((s, p) => s + p[0], 0) / n, pts.reduce((s, p) => s + p[1], 0) / n];
 }
 
-/** Every corner, holes included, so each one gets a drag handle. */
+/** Every corner, holes and all pieces included, so each one gets a drag handle. */
 export function vertices(g: Geometry): Pt[] {
   if (g.type === 'Point') return [g.coordinates];
-  if (g.type === 'Polygon') return openRings(g).flat();
+  if (isArea(g)) return openParts(g).flat(2);
   return g.coordinates;
 }
 
 export function withVertices(g: Geometry, pts: Pt[]): Geometry {
   if (g.type === 'Point') return { type: 'Point', coordinates: pts[0] };
-  if (g.type === 'Polygon') {
-    // Keeps the corner order so drag handles stay on their corners; polygon() fixes the winding on save.
+  if (isArea(g)) {
+    // Keeps the corner order so drag handles stay on their corners; shape() fixes the winding on save.
     let at = 0;
-    return { type: 'Polygon', coordinates: openRings(g).map((r) => pts.slice(at, (at += r.length))).map((r) => [...r, r[0]]) };
+    const parts = openParts(g).map((rings) => rings.map((r) => pts.slice(at, (at += r.length))).map((r) => [...r, r[0]]));
+    return g.type === 'Polygon' ? { type: 'Polygon', coordinates: parts[0] } : { type: 'MultiPolygon', coordinates: parts };
   }
   return { type: 'LineString', coordinates: pts };
 }
