@@ -64,6 +64,22 @@ export interface Taxon {
   common?: string;
 }
 
+/** A recurring garden job for the calendar. */
+export interface Job {
+  id: string;
+  what: string;
+  /** When it's done, in the words of the source or the team, e.g. 'Late winter, before nesting season'. */
+  when: string;
+  /** Months it falls in, 1 to 12. Empty for jobs done when needed. */
+  months: number[];
+  /** Who does it. */
+  partyId?: string;
+  /** Beds, trees or hedges it's for; marking it done logs it on each. */
+  featureIds: string[];
+  lastDone?: string;
+  source?: string;
+}
+
 export interface Party {
   id: string;
   name: string;

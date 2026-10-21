@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Feature, Observation, Party, PhotoRecord, Taxon } from './model';
-import { SEED_PARTIES, SEED_TAXA, seedFeatures } from './seed';
+import type { Feature, Job, Observation, Party, PhotoRecord, Taxon } from './model';
+import { SEED_JOBS, SEED_PARTIES, SEED_TAXA, seedFeatures } from './seed';
 import { START_POSITIONS } from './positions';
 
 interface GardenDB extends DBSchema {
@@ -9,6 +9,7 @@ interface GardenDB extends DBSchema {
   photos: { key: string; value: PhotoRecord };
   taxa: { key: string; value: Taxon };
   parties: { key: string; value: Party };
+  jobs: { key: string; value: Job };
   meta: { key: string; value: { key: string; value: string } };
 }
 
@@ -16,14 +17,18 @@ let dbp: Promise<IDBPDatabase<GardenDB>> | null = null;
 
 export function db() {
   if (!dbp) {
-    dbp = openDB<GardenDB>('providence-garden', 1, {
-      upgrade(d) {
-        d.createObjectStore('features', { keyPath: 'id' });
-        d.createObjectStore('observations', { keyPath: 'id' }).createIndex('byFeature', 'featureId');
-        d.createObjectStore('photos', { keyPath: 'id' });
-        d.createObjectStore('taxa', { keyPath: 'id' });
-        d.createObjectStore('parties', { keyPath: 'id' });
-        d.createObjectStore('meta', { keyPath: 'key' });
+    dbp = openDB<GardenDB>('providence-garden', 2, {
+      upgrade(d, oldVersion) {
+        if (oldVersion < 1) {
+          d.createObjectStore('features', { keyPath: 'id' });
+          d.createObjectStore('observations', { keyPath: 'id' }).createIndex('byFeature', 'featureId');
+          d.createObjectStore('photos', { keyPath: 'id' });
+          d.createObjectStore('taxa', { keyPath: 'id' });
+          d.createObjectStore('parties', { keyPath: 'id' });
+          d.createObjectStore('meta', { keyPath: 'key' });
+        }
+        // Version 2: recurring jobs for the calendar.
+        if (oldVersion < 2) d.createObjectStore('jobs', { keyPath: 'id' });
       },
     });
   }
@@ -64,16 +69,34 @@ export async function ensureStartPositions() {
   await tx.done;
 }
 
+/** Loads the recurring jobs from the 2018 documents, once. Jobs the team has changed are left alone. */
+export async function ensureJobs() {
+  if (await getMeta('jobsSeededAt')) return;
+  const d = await db();
+  const tx = d.transaction(['jobs', 'meta'], 'readwrite');
+  for (const j of SEED_JOBS) if (!(await tx.objectStore('jobs').get(j.id))) await tx.objectStore('jobs').put(j);
+  await tx.objectStore('meta').put({ key: 'jobsSeededAt', value: new Date().toISOString() });
+  await tx.done;
+}
+
 export const loadAll = async () => {
   const d = await db();
-  const [features, observations, taxa, parties] = await Promise.all([
+  const [features, observations, taxa, parties, jobs] = await Promise.all([
     d.getAll('features'),
     d.getAll('observations'),
     d.getAll('taxa'),
     d.getAll('parties'),
+    d.getAll('jobs'),
   ]);
-  return { features, observations, taxa: taxa.sort((a, b) => a.name.localeCompare(b.name)), parties };
+  return { features, observations, taxa: taxa.sort((a, b) => a.name.localeCompare(b.name)), parties, jobs };
 };
+
+export async function putJob(j: Job) {
+  await (await db()).put('jobs', j);
+}
+export async function deleteJob(id: string) {
+  await (await db()).delete('jobs', id);
+}
 
 export async function putFeature(f: Feature) {
   await (await db()).put('features', { ...f, updatedAt: new Date().toISOString() });

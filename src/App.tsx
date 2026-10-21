@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapView, HOME, type MapMode } from './MapView';
 import { LAYERS, TYPES, typeOf } from './catalogue';
-import { deleteFeature, ensureSeeded, ensureStartPositions, getMeta, loadAll, newId, putFeature, putObservation, putPhoto, putTaxon } from './db';
+import { deleteFeature, deleteJob, ensureJobs, ensureSeeded, ensureStartPositions, getMeta, loadAll, newId, putFeature, putJob, putObservation, putPhoto, putTaxon } from './db';
 import { centre, inArea, isArea, measure, openParts, pointInPolygon, preparePhoto, shape, vertices, watchFix, type Fix } from './geo';
 import { buildBackup, deliverFile, restoreBackup, toGeoJSON } from './backup';
-import type { Feature, Geometry, Observation, ObservationKind, Party, Taxon } from './model';
+import type { Feature, Geometry, Job, Observation, ObservationKind, Party, Taxon } from './model';
 import { MoreMenu, OBS_KINDS, PhotoViewer, StatusChip, TaxonPicker, Thumb, fmtDate, obsLabel, useMedia } from './components';
 import { ItemsReport } from './Reports';
+import { CalendarPanel } from './Calendar';
 
 /** 'reports' fills the screen; the rest open in the side sheet. */
-type Panel = null | 'layers' | 'register' | 'entry' | 'reports' | 'menu' | 'new' | 'capture' | 'feature';
+type Panel = null | 'layers' | 'register' | 'entry' | 'reports' | 'calendar' | 'menu' | 'new' | 'capture' | 'feature';
 
 /** What screen readers announce for each panel. */
-const PANEL_LABEL: Record<Exclude<Panel, null>, string> = { layers: 'Layers', register: 'Register', entry: 'New register entry', reports: 'Items report', menu: 'Your data', new: 'What are you capturing?', capture: 'Capture', feature: 'Item' };
+const PANEL_LABEL: Record<Exclude<Panel, null>, string> = { layers: 'Layers', register: 'Register', entry: 'New register entry', reports: 'Items report', calendar: 'Calendar', menu: 'Your data', new: 'What are you capturing?', capture: 'Capture', feature: 'Item' };
 
 /** When panels sit at the side instead of the bottom. Keep in step with styles.css. */
 const SIDE_SHEET = '(min-width: 900px), (orientation: landscape) and (max-height: 500px)';
@@ -61,6 +62,7 @@ export default function App() {
   const [observations, setObservations] = useState<Observation[]>([]);
   const [taxa, setTaxa] = useState<Taxon[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   const [panel, setPanel] = useState<Panel>(null);
@@ -118,6 +120,7 @@ export default function App() {
     setObservations(d.observations);
     setTaxa(d.taxa);
     setParties(d.parties);
+    setJobs(d.jobs);
   }, []);
 
   useEffect(() => {
@@ -129,6 +132,7 @@ export default function App() {
       }
       await ensureSeeded();
       await ensureStartPositions();
+      await ensureJobs();
       await reload();
       setLoaded(true);
     })();
@@ -371,6 +375,27 @@ export default function App() {
     flash('Added to the register.');
   }
 
+  async function saveJob(j: Job) {
+    await putJob(j);
+    setJobs((all) => [...all.filter((x) => x.id !== j.id), j]);
+  }
+
+  async function removeJob(id: string) {
+    await deleteJob(id);
+    setJobs((all) => all.filter((x) => x.id !== id));
+    flash('Job deleted.');
+  }
+
+  /** Marks a job done and logs it as maintenance on each bed, tree or hedge it's for. */
+  async function markJobDone(j: Job) {
+    const at = new Date().toISOString();
+    const logged: Observation[] = j.featureIds.filter((id) => byId[id]).map((featureId) => ({ id: newId('obs'), featureId, kind: 'maintenance', at, text: j.what, photoIds: [] }));
+    for (const o of logged) await putObservation(o);
+    setObservations((all) => [...all, ...logged]);
+    await saveJob({ ...j, lastDone: at });
+    flash(logged.length ? `Marked done and logged on ${logged.length} item${logged.length > 1 ? 's' : ''}.` : 'Marked done.');
+  }
+
   // ---------- refine ----------
 
   function beginRefine(f: Feature) {
@@ -470,8 +495,8 @@ export default function App() {
           <button type="button" className={`nav-btn ${panel === 'reports' ? 'on' : ''}`} onClick={() => setPanel(panel === 'reports' ? null : 'reports')}>
             Reports
           </button>
-          <button type="button" className={`nav-btn ${panel === 'layers' ? 'on' : ''}`} onClick={() => setPanel(panel === 'layers' ? null : 'layers')}>
-            Layers
+          <button type="button" className={`nav-btn ${panel === 'calendar' ? 'on' : ''}`} onClick={() => setPanel(panel === 'calendar' ? null : 'calendar')}>
+            Calendar
           </button>
           <button type="button" className={`nav-btn ${panel === 'menu' ? 'on' : ''}`} onClick={() => setPanel(panel === 'menu' ? null : 'menu')}>
             Data
@@ -501,6 +526,12 @@ export default function App() {
 
         {mode === 'browse' && !panel ? (
           <div className="map-actions">
+            <button type="button" className="round-btn" aria-label="Layers" onClick={() => setPanel('layers')}>
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path d="M12 3l9 5-9 5-9-5z" fill="currentColor" />
+                <path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+              </svg>
+            </button>
             <button
               type="button"
               className="round-btn"
@@ -712,6 +743,7 @@ export default function App() {
 
             {panel === 'register' ? <RegisterPanel features={features} byId={byId} taxa={taxonById} onOpen={openFeature} onNew={() => setPanel('entry')} onClose={() => setPanel(null)} /> : null}
             {panel === 'entry' ? <EntryPanel taxa={taxa} beds={beds} onCreateTaxon={createTaxon} onSave={addEntry} onCancel={() => setPanel('register')} /> : null}
+            {panel === 'calendar' ? <CalendarPanel jobs={jobs} features={features} parties={parties} onSave={saveJob} onDelete={removeJob} onDone={markJobDone} onClose={() => setPanel(null)} /> : null}
 
             {panel === 'layers' ? (
               <LayersPanel
@@ -1312,7 +1344,7 @@ function RegisterPanel({ features, byId, taxa, onOpen, onNew, onClose }: { featu
         ))}
       </div>
       <div className="search-row">
-        <input id="register-search" type="search" placeholder="Search by name, species or type" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input id="register-search" type="search" placeholder="Search names or species" value={q} onChange={(e) => setQ(e.target.value)} />
         <button type="button" className="btn" onClick={onNew}>
           New entry
         </button>

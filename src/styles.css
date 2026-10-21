@@ -68,6 +68,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .topnav { flex: 1; justify-content: space-between; }
   .nav-btn { padding: 8px 6px; }
 }
+@media (max-width: 360px) {
+  .nav-btn { padding: 8px 4px; font-size: 14px; }
+}
 .badge { background: #f2b84b; color: #2a1d00; border-radius: 999px; font: 600 11px/1 var(--mono); padding: 3px 6px; }
 
 .stage { position: relative; flex: 1; min-height: 0; }
@@ -193,6 +196,15 @@ input[type='checkbox'] { width: 20px; height: 20px; accent-color: var(--accent);
 .layer-swatches { display: inline-flex; }
 .layer-swatches .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface); margin-left: -4px; }
 .check { display: flex; align-items: center; gap: 10px; }
+.job-list { list-style: none; margin: 0; padding: 0; }
+.job { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.job + .job { border-top: 1px solid var(--line); }
+.job-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 4px 0; border: 0; background: none; text-align: left; cursor: pointer; }
+.job-what { font-weight: 500; }
+.month-picks { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.month-pick { min-height: 44px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-weight: 500; cursor: pointer; }
+.month-pick[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.job-delete { margin-right: auto; color: var(--danger); }
 .map-key { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .map-key li { display: flex; align-items: center; gap: 10px; }
 .map-key svg { width: 28px; height: 16px; flex: none; }

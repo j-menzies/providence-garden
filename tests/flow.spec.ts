@@ -333,6 +333,87 @@ test('add an entry to the register without placing it', async ({ page }) => {
   await expect(page.getByRole('toolbar', { name: 'Drawing' })).toBeVisible();
 });
 
+test('calendar of recurring jobs', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-21T10:00:00'));
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  await page.getByRole('button', { name: 'Calendar' }).click();
+  await expect(page.getByText('Nothing due in October.')).toBeVisible();
+  const december = page.getByRole('region', { name: 'December 2026' });
+  await expect(december).toContainText('Check tree ties and stakes');
+  await expect(december).toContainText('Winter tree survey with the tree surgeons');
+  await expect(page.getByRole('region', { name: 'February 2027' })).toContainText('Prune Cotoneaster hedge back from railings');
+
+  // Marking a job done logs it on the tree it's for.
+  const pine = page.locator('.job', { hasText: 'Inspect the Scots pine' });
+  await pine.getByRole('button', { name: 'Mark done' }).click();
+  await expect(page.getByText('Marked done and logged on 1 item.')).toBeVisible();
+  await expect(pine.locator('.chip')).toHaveText('Done');
+
+  // A new job for this month, moved to next month, then deleted.
+  await page.getByRole('button', { name: 'Add a job' }).click();
+  await page.fill('#job-what', 'Clean the pond pump filter');
+  await page.getByRole('button', { name: 'Oct', exact: true }).click();
+  await page.selectOption('#job-feature', 'water-moat');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('region', { name: /Due now/ })).toContainText('Clean the pond pump filter');
+  await page.getByRole('button', { name: /Clean the pond pump filter/ }).click();
+  await page.getByRole('button', { name: 'Oct', exact: true }).click();
+  await page.getByRole('button', { name: 'Nov', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Next month' })).toContainText('Clean the pond pump filter');
+  await expect(page.locator('.job', { hasText: 'Clean the pond pump filter' })).toContainText('Nov · The moat');
+  await page.screenshot({ path: `${SHOTS}/14-calendar.png` });
+  await page.getByRole('button', { name: /Clean the pond pump filter/ }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete this job' }).click();
+  await expect(page.getByText('Clean the pond pump filter')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.getByRole('button', { name: /Register/ }).click();
+  await page.getByRole('tab', { name: 'Everything' }).click();
+  await page.fill('#register-search', 'Scots pine');
+  await page.getByRole('button', { name: /Scots pine/ }).first().click();
+  await expect(page.locator('.log li')).toContainText('Inspect the Scots pine');
+});
+
+test('upgrading from the first version keeps the data and adds the calendar', async ({ page }) => {
+  // A page on the app's origin that doesn't run the app, to build a version 1 database by hand.
+  await page.goto('./manifest.webmanifest');
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const r = indexedDB.open('providence-garden', 1);
+        r.onupgradeneeded = () => {
+          const d = r.result;
+          d.createObjectStore('features', { keyPath: 'id' });
+          d.createObjectStore('observations', { keyPath: 'id' }).createIndex('byFeature', 'featureId');
+          for (const s of ['photos', 'taxa', 'parties']) d.createObjectStore(s, { keyPath: 'id' });
+          d.createObjectStore('meta', { keyPath: 'key' });
+        };
+        r.onerror = () => reject(r.error);
+        r.onsuccess = () => {
+          const d = r.result;
+          const tx = d.transaction(['features', 'meta'], 'readwrite');
+          const ring = [[-0.0704, 51.5014], [-0.0694, 51.5013], [-0.0694, 51.5016], [-0.0704, 51.5014]];
+          tx.objectStore('features').put({ id: 'water-moat', type: 'water-body', name: 'The moat', geometry: { type: 'Polygon', coordinates: [ring] }, positionStatus: 'refined', createdAt: '2026-10-21T00:00:00Z', updatedAt: '2026-10-21T00:00:00Z' });
+          tx.objectStore('meta').put({ key: 'seededAt', value: '2026-10-21T00:00:00Z' });
+          tx.oncomplete = () => {
+            d.close();
+            resolve();
+          };
+        };
+      }),
+  );
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  await page.getByRole('button', { name: 'Reports' }).click();
+  await expect(page.locator('#report-count')).toHaveText('1 of 1 items');
+  await expect(page.locator('.report-table tbody tr')).toContainText('Placed');
+  await page.getByRole('button', { name: 'Calendar' }).click();
+  await expect(page.locator('.job')).toHaveCount(12);
+});
+
 test('panels drag between peek, half and full on a phone', async ({ page }) => {
   await page.goto('./');
   await expect(page.locator('.loading')).toBeHidden();

@@ -1,8 +1,7 @@
 import JSZip from 'jszip';
 import { db, setMeta } from './db';
 import { typeOf } from './catalogue';
-import { SEED_RULES } from './seed';
-import type { Feature, Observation, Party, PhotoRecord, Taxon } from './model';
+import type { Feature, Job, Observation, Party, PhotoRecord, Taxon } from './model';
 
 const FORMAT = 'providence-garden-backup/1';
 
@@ -35,12 +34,13 @@ export function toGeoJSON(features: Feature[], taxa: Taxon[]) {
 /** Full backup: one zip with data.json (Firestore-shaped collections) and the photos. */
 export async function buildBackup(): Promise<Blob> {
   const d = await db();
-  const [features, observations, photos, taxa, parties] = await Promise.all([
+  const [features, observations, photos, taxa, parties, jobs] = await Promise.all([
     d.getAll('features'),
     d.getAll('observations'),
     d.getAll('photos'),
     d.getAll('taxa'),
     d.getAll('parties'),
+    d.getAll('jobs'),
   ]);
   const zip = new JSZip();
   zip.file(
@@ -55,7 +55,7 @@ export async function buildBackup(): Promise<Blob> {
           photos: photos.map(({ blob: _b, thumb: _t, ...meta }) => ({ ...meta, path: `photos/${meta.id}.jpg`, thumbPath: `thumbs/${meta.id}.jpg` })),
           taxa,
           parties,
-          rules: SEED_RULES,
+          jobs,
         },
       },
       null,
@@ -85,6 +85,8 @@ export async function restoreBackup(file: Blob) {
     photos: (Omit<PhotoRecord, 'blob' | 'thumb'> & { path: string; thumbPath: string })[];
     taxa: Taxon[];
     parties: Party[];
+    // Backups from before the calendar have no jobs.
+    jobs?: Job[];
   };
   const photoBlobs: PhotoRecord[] = [];
   for (const p of c.photos) {
@@ -96,12 +98,13 @@ export async function restoreBackup(file: Blob) {
     }
   }
   const d = await db();
-  const tx = d.transaction(['features', 'observations', 'photos', 'taxa', 'parties'], 'readwrite');
+  const tx = d.transaction(['features', 'observations', 'photos', 'taxa', 'parties', 'jobs'], 'readwrite');
   for (const f of c.features) await tx.objectStore('features').put(f);
   for (const o of c.observations) await tx.objectStore('observations').put(o);
   for (const p of photoBlobs) await tx.objectStore('photos').put(p);
   for (const t of c.taxa) await tx.objectStore('taxa').put(t);
   for (const p of c.parties) await tx.objectStore('parties').put(p);
+  for (const j of c.jobs ?? []) await tx.objectStore('jobs').put(j);
   await tx.done;
   return { features: c.features.length, observations: c.observations.length, photos: photoBlobs.length };
 }

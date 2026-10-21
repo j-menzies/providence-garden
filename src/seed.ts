@@ -1,4 +1,4 @@
-import type { Feature, Party, Taxon } from './model';
+import type { Feature, Job, Party, Taxon } from './model';
 import plantings from './data/plantings2018.json';
 
 // Reference data taken from the 2018 Garden Master Plan, plant schedule and tree list.
@@ -105,18 +105,26 @@ export const SEED_PARTIES: Party[] = [
   { id: 'party-provender', name: 'Provender Nurseries', role: 'Wholesale trees and plants, Kent' },
 ];
 
-/** Recurring work named in the 2018 documents. Kept as data for the calendar that comes later. */
-export const SEED_RULES = [
-  { id: 'rule-water-new', what: 'Water new planting', when: 'Weekly during dry periods', source: 'Implementation plan' },
-  { id: 'rule-stakes', what: 'Check tree ties and stakes; remove after two years', when: 'Quarterly', source: 'Implementation plan' },
-  { id: 'rule-malus-edges', what: 'Recut tree circle edges for the two Malus', when: 'Annually', source: 'Implementation plan' },
-  { id: 'rule-divide', what: 'Split and divide herbaceous perennials', when: 'Every three years', source: 'Implementation plan' },
-  { id: 'rule-mulch', what: 'Mulch tree bases, shrubs and herbaceous', when: 'January to February', source: 'Implementation plan' },
-  { id: 'rule-tree-survey', what: 'Winter tree survey with the tree surgeons', when: 'December to February', source: MASTER },
-  { id: 'rule-tree-visit', what: 'Tree surgeon site visit to plan the year', when: 'April to May', source: MASTER },
-  { id: 'rule-tpo-deadline', what: 'Submit TPO applications', when: 'By end of June', source: MASTER },
-  { id: 'rule-tree-work', what: 'Tree work', when: 'Late summer', source: MASTER },
-  { id: 'rule-hedge', what: 'Prune Cotoneaster hedge back from railings', when: 'Late winter, before nesting season', source: MASTER },
-  { id: 'rule-pine', what: 'Inspect the Scots pine', when: 'Annually', source: MASTER },
-  { id: 'rule-vents', what: 'Prune climbers on the island air vents', when: 'Before the wires are overloaded', source: MASTER },
+const TEAM = 'party-gardening-team';
+const SURGEONS = 'party-bartlett';
+const MALUS = ['tree-malus-evereste-roadside-bed-west-east-sides-1', 'tree-malus-evereste-roadside-bed-west-east-sides-2'];
+
+/**
+ * Recurring work named in the 2018 documents, for the calendar. Months are read from the wording
+ * ("late summer" is August and September, "dry periods" May to September); where a document gives
+ * no month the job is left as "when needed" for the team to set.
+ */
+export const SEED_JOBS: Job[] = [
+  { id: 'rule-water-new', what: 'Water new planting', when: 'Weekly during dry periods', months: [5, 6, 7, 8, 9], partyId: TEAM, featureIds: [], source: 'Implementation plan' },
+  { id: 'rule-stakes', what: 'Check tree ties and stakes; remove after two years', when: 'Quarterly', months: [3, 6, 9, 12], partyId: TEAM, featureIds: [], source: 'Implementation plan' },
+  { id: 'rule-malus-edges', what: 'Recut tree circle edges for the two Malus', when: 'Annually', months: [], partyId: TEAM, featureIds: MALUS, source: 'Implementation plan' },
+  { id: 'rule-divide', what: 'Split and divide herbaceous perennials', when: 'Every three years', months: [], partyId: TEAM, featureIds: [], source: 'Implementation plan' },
+  { id: 'rule-mulch', what: 'Mulch tree bases, shrubs and herbaceous', when: 'January to February', months: [1, 2], partyId: TEAM, featureIds: [], source: 'Implementation plan' },
+  { id: 'rule-tree-survey', what: 'Winter tree survey with the tree surgeons', when: 'December to February', months: [12, 1, 2], partyId: SURGEONS, featureIds: [], source: MASTER },
+  { id: 'rule-tree-visit', what: 'Tree surgeon site visit to plan the year', when: 'April to May', months: [4, 5], partyId: SURGEONS, featureIds: [], source: MASTER },
+  { id: 'rule-tpo-deadline', what: 'Submit TPO applications', when: 'By end of June', months: [6], partyId: SURGEONS, featureIds: [], source: MASTER },
+  { id: 'rule-tree-work', what: 'Tree work', when: 'Late summer', months: [8, 9], partyId: SURGEONS, featureIds: [], source: MASTER },
+  { id: 'rule-hedge', what: 'Prune Cotoneaster hedge back from railings', when: 'Late winter, before nesting season', months: [2], partyId: TEAM, featureIds: ['hedge-cotoneaster'], source: MASTER },
+  { id: 'rule-pine', what: 'Inspect the Scots pine', when: 'Annually', months: [], partyId: SURGEONS, featureIds: ['tree-scots-pine-car-park'], source: MASTER },
+  { id: 'rule-vents', what: 'Prune climbers on the island air vents', when: 'Before the wires are overloaded', months: [], partyId: TEAM, featureIds: ['vent-island-1', 'vent-island-2'], source: MASTER },
 ];
