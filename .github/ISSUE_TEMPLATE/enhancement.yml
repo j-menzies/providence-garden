@@ -1,0 +1,52 @@
+name: Enhancement request
+description: Ask for something new in the garden app, or a change to how something works.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe what you're trying to do in the garden, not only the feature you have in mind. Photos and screenshots help: paste or drag them into any box.
+  - type: textarea
+    id: need
+    attributes:
+      label: What are you trying to do?
+      description: The job in the garden, or the problem you ran into.
+      placeholder: The moat is a ring of water with an island in the middle, but I can only trace solid shapes, so the island gets counted as water.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could the app help?
+      description: Optional. How you picture it working.
+      placeholder: Let me trace the island inside the moat and cut it out.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      options:
+        - Map and drawing
+        - Capturing plants and features
+        - Register
+        - Layers
+        - Photos and log
+        - Back-up and export
+        - Something new
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: importance
+    attributes:
+      label: How much does it matter?
+      options:
+        - Nice to have
+        - Would make a real difference
+        - Can't record something properly without it
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Optional. Photos, screenshots, examples or links.
