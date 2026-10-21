@@ -5,11 +5,17 @@ import { deleteFeature, ensureSeeded, ensureStartPositions, getMeta, loadAll, ne
 import { centre, inArea, isArea, measure, openParts, pointInPolygon, preparePhoto, shape, vertices, watchFix, type Fix } from './geo';
 import { buildBackup, deliverFile, restoreBackup, toGeoJSON } from './backup';
 import type { Feature, Geometry, Observation, ObservationKind, Party, Taxon } from './model';
-import { OBS_KINDS, PhotoViewer, StatusChip, TaxonPicker, Thumb, fmtDate, obsLabel } from './components';
+import { MoreMenu, OBS_KINDS, PhotoViewer, StatusChip, TaxonPicker, Thumb, fmtDate, obsLabel, useMedia } from './components';
 import { ItemsReport } from './Reports';
 
 /** 'reports' fills the screen; the rest open in the side sheet. */
 type Panel = null | 'layers' | 'register' | 'reports' | 'menu' | 'new' | 'capture' | 'feature';
+
+/** What screen readers announce for each panel. */
+const PANEL_LABEL: Record<Exclude<Panel, null>, string> = { layers: 'Layers', register: 'Register', reports: 'Items report', menu: 'Your data', new: 'What are you capturing?', capture: 'Capture', feature: 'Item' };
+
+/** When panels sit at the side instead of the bottom. Keep in step with styles.css. */
+const SIDE_SHEET = '(min-width: 900px), (orientation: landscape) and (max-height: 500px)';
 
 interface Capture {
   /** Existing feature being placed, or undefined for a new one. */
@@ -79,6 +85,32 @@ export default function App() {
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [viewPhoto, setViewPhoto] = useState<string | null>(null);
+
+  // On phones panels are a bottom sheet the grip drags between three heights. The height is kept
+  // while tapping from item to item, so a sheet pulled down to peek stays out of the map's way.
+  const stageRef = useRef<HTMLElement>(null);
+  const [stageH, setStageH] = useState(0);
+  useEffect(() => {
+    const el = stageRef.current!;
+    const ro = new ResizeObserver(() => setStageH(el.clientHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const side = useMedia(SIDE_SHEET);
+  const [sheetSnap, setSheetSnap] = useState<'peek' | 'half' | 'full'>('half');
+  const [dragH, setDragH] = useState<number | null>(null);
+  const drag = useRef<{ y: number; h: number; moved: boolean } | null>(null);
+  const skipGripClick = useRef(false);
+  useEffect(() => {
+    if (!panel) setSheetSnap('half');
+  }, [panel]);
+  const snaps = { peek: Math.min(150, stageH * 0.3), half: Math.round(stageH * 0.6), full: stageH - 12 };
+  const sheetOpen = panel !== null && panel !== 'reports';
+  const sheetH = dragH ?? snaps[sheetSnap];
+  const panelInset = useMemo(
+    () => ({ bottom: sheetOpen && !side ? Math.round(Math.min(snaps[sheetSnap], stageH * 0.7)) : 0, right: sheetOpen && side ? Math.round(Math.min(400, window.innerWidth * 0.45)) : 0 }),
+    [sheetOpen, side, sheetSnap, stageH],
+  );
 
   const reload = useCallback(async () => {
     const d = await loadAll();
@@ -356,6 +388,45 @@ export default function App() {
     if (f.geometry) fly(centre(f.geometry), f.geometry.type === 'Point' ? 20 : undefined);
   }
 
+  // ---------- panel sheet ----------
+
+  function closePanel() {
+    if (panel === 'capture') return cancelCapture();
+    if (panel === 'feature') setSelectedId(null);
+    setPanel(null);
+  }
+
+  function gripDown(e: React.PointerEvent<HTMLButtonElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { y: e.clientY, h: sheetH, moved: false };
+  }
+
+  function gripMove(e: React.PointerEvent) {
+    const d = drag.current;
+    if (!d) return;
+    if (Math.abs(e.clientY - d.y) > 6) d.moved = true;
+    if (d.moved) setDragH(Math.max(48, Math.min(snaps.full, d.h + d.y - e.clientY)));
+  }
+
+  function gripUp(e: React.PointerEvent) {
+    const d = drag.current;
+    drag.current = null;
+    if (!d?.moved) return;
+    skipGripClick.current = true;
+    const h = Math.max(48, Math.min(snaps.full, d.h + d.y - e.clientY));
+    setDragH(null);
+    // Pulled well below the peek height: close, except mid-capture, where that would lose the entry.
+    if (h < snaps.peek * 0.6 && panel !== 'capture') return closePanel();
+    setSheetSnap((['peek', 'half', 'full'] as const).reduce((a, b) => (Math.abs(snaps[b] - h) < Math.abs(snaps[a] - h) ? b : a)));
+  }
+
+  useEffect(() => {
+    // Escape closes the open panel. Not mid-capture, where it would throw away the entry.
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !viewPhoto && panel && panel !== 'capture' && closePanel();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   // ---------- render ----------
 
   const drawType = capture ? typeOf(capture.typeId) : null;
@@ -389,7 +460,7 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="stage">
+      <main className="stage" ref={stageRef}>
         <MapView
           features={features}
           visibleLayers={visibleLayers}
@@ -403,7 +474,7 @@ export default function App() {
           editGeometry={editGeometry}
           userFix={fix}
           flyTo={flyTo}
-          panelOpen={panel !== null && panel !== 'reports'}
+          panelInset={panelInset}
           onSelect={select}
           onMapTap={onMapTap}
           onEditChange={setEditGeometry}
@@ -449,7 +520,6 @@ export default function App() {
               <span>
                 {drawingHole ? 'Tap round the hole, such as an island' : nextPiece ? 'Tap round the next part' : drawType.hint ?? 'Tap each corner on the map'}. {draft.length} point{draft.length === 1 ? '' : 's'}.
               </span>
-              <span className="muted small">{fix ? `GPS ±${Math.round(fix.accuracy)}m` : gpsError ?? 'Waiting for GPS…'}</span>
             </div>
             <div className="toolbar-btns">
               <button type="button" className="btn btn-quiet" onClick={cancelCapture}>
@@ -458,19 +528,22 @@ export default function App() {
               <button type="button" className="btn" disabled={!draft.length && !draftRings.length} onClick={undoPoint}>
                 Undo
               </button>
-              <button type="button" className="btn" disabled={!fix} onClick={() => fix && setDraft((d) => [...d, [fix.lng, fix.lat]])}>
-                Add my position
-              </button>
-              {drawType.geometry === 'polygon' ? (
-                <>
-                  <button type="button" className="btn" disabled={!ringDone} onClick={() => startRing('hole')}>
-                    Add a hole
-                  </button>
-                  <button type="button" className="btn" disabled={!ringDone} onClick={() => startRing('part')}>
-                    Add a part
-                  </button>
-                </>
-              ) : null}
+              <MoreMenu
+                label="More drawing options"
+                items={[
+                  {
+                    label: fix ? `Add my position (GPS ±${Math.round(fix.accuracy)}m)` : `Add my position (${gpsError ? 'no GPS' : 'waiting for GPS'})`,
+                    disabled: !fix,
+                    onSelect: () => fix && setDraft((d) => [...d, [fix.lng, fix.lat]]),
+                  },
+                  ...(drawType.geometry === 'polygon'
+                    ? [
+                        { label: 'Add a hole', disabled: !ringDone, onSelect: () => startRing('hole') },
+                        { label: 'Add a part', disabled: !ringDone, onSelect: () => startRing('part') },
+                      ]
+                    : []),
+                ]}
+              />
               <button type="button" className="btn btn-primary" disabled={!canFinish} onClick={finishDrawing}>
                 Done
               </button>
@@ -527,7 +600,29 @@ export default function App() {
         {panel === 'reports' ? <ItemsReport features={features} observations={observations} taxa={taxonById} onOpen={openFeature} onClose={() => setPanel(null)} /> : null}
 
         {panel && panel !== 'reports' ? (
-          <aside className="sheet" aria-label="Panel" key={`${panel}-${panel === 'feature' ? selectedId : ''}`}>
+          <aside
+            className={`sheet ${dragH !== null ? 'dragging' : ''}`}
+            aria-label={panel === 'feature' ? selected?.name ?? PANEL_LABEL.feature : PANEL_LABEL[panel]}
+            style={side || !stageH ? undefined : { ['--sheet-h' as string]: `${sheetH}px` }}
+            key={`${panel}-${panel === 'feature' ? selectedId : ''}`}
+          >
+            <button
+              type="button"
+              className="sheet-grip"
+              aria-label={sheetSnap === 'full' ? 'Make the panel smaller' : 'Make the panel bigger'}
+              onPointerDown={gripDown}
+              onPointerMove={gripMove}
+              onPointerUp={gripUp}
+              onPointerCancel={() => {
+                drag.current = null;
+                setDragH(null);
+              }}
+              onClick={() => {
+                if (skipGripClick.current) skipGripClick.current = false;
+                else setSheetSnap((s) => (s === 'half' ? 'full' : 'half'));
+              }}
+            />
+            <div className="sheet-body">
             {panel === 'new' ? <NewPanel onPick={(id) => beginCapture(id)} onClose={() => setPanel(null)} /> : null}
 
             {panel === 'capture' && capture ? (
@@ -612,6 +707,7 @@ export default function App() {
             ) : null}
 
             {panel === 'menu' ? <DataPanel features={features} observations={observations} taxa={taxa} parties={parties} onRestored={reload} flash={flash} onClose={() => setPanel(null)} /> : null}
+            </div>
           </aside>
         ) : null}
 

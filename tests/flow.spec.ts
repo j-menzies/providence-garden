@@ -144,6 +144,7 @@ test('moat with islands cut out of it', async ({ page }) => {
 
   // Redraw keeps the outline, so carry on and trace the island in the middle as a hole.
   await page.getByRole('button', { name: 'Redraw' }).click();
+  await page.getByRole('button', { name: 'More' }).click();
   await page.getByRole('button', { name: 'Add a hole' }).click();
   await expect(page.getByText(/Tap round the hole/)).toBeVisible();
   for (const [dx, dy] of [[-30, -30], [30, -30], [30, 30], [-30, 30]]) await tapMap(page, dx, dy);
@@ -206,6 +207,7 @@ test('an area in separate parts, like Riverside Gardens', async ({ page }) => {
   await page.getByRole('button', { name: 'Capture' }).click();
   await page.getByRole('button', { name: 'Bed', exact: true }).click();
   for (const [dx, dy] of [[-90, -30], [-30, -30], [-30, 30], [-90, 30]]) await tapMap(page, dx, dy);
+  await page.getByRole('button', { name: 'More' }).click();
   await page.getByRole('button', { name: 'Add a part' }).click();
   await expect(page.getByText('Another part of the new bed')).toBeVisible();
   for (const [dx, dy] of [[30, -30], [90, -30], [90, 30], [30, 30]]) await tapMap(page, dx, dy);
@@ -300,6 +302,34 @@ test('items report lists everything and filters it', async ({ page }) => {
   // Tapping an item opens it.
   await page.getByRole('button', { name: 'Island silver birch 1', exact: true }).click();
   await expect(page.locator('.panel-head h2')).toHaveText('Island silver birch 1');
+});
+
+test('panels drag between peek, half and full on a phone', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  await page.getByRole('button', { name: /Register/ }).click();
+  const sheet = page.locator('.sheet');
+  const stage = (await page.locator('.stage').boundingBox())!.height;
+  const height = async () => (await sheet.boundingBox())!.height;
+  const drag = async (dy: number) => {
+    const g = (await page.locator('.sheet-grip').boundingBox())!;
+    const [x, y] = [g.x + g.width / 2, g.y + g.height / 2];
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + dy, { steps: 8 });
+    await page.mouse.up();
+  };
+  await expect.poll(height).toBeCloseTo(stage * 0.6, -1);
+  await drag(-300);
+  await expect.poll(height).toBeCloseTo(stage - 12, -1);
+  await drag(600);
+  await expect.poll(height).toBeCloseTo(Math.min(150, stage * 0.3), -1);
+  // Tapping the grip brings it back up.
+  await page.locator('.sheet-grip').click();
+  await expect.poll(height).toBeCloseTo(stage * 0.6, -1);
+  // Pulled right down, it closes.
+  await drag(500);
+  await expect(sheet).toBeHidden();
 });
 
 test('desktop dark layout', async ({ browser }) => {

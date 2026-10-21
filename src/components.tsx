@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getPhoto } from './db';
 import type { Observation, ObservationKind, Taxon } from './model';
 
@@ -12,6 +12,53 @@ export const OBS_KINDS: { id: ObservationKind; label: string }[] = [
 ];
 
 export const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+export function useMedia(query: string) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const q = window.matchMedia(query);
+    const on = () => setMatches(q.matches);
+    q.addEventListener('change', on);
+    return () => q.removeEventListener('change', on);
+  }, [query]);
+  return matches;
+}
+
+/** A "More" button opening a short list of less-used actions above it, so toolbars stay to one row. */
+export function MoreMenu({ label, items }: { label: string; items: { label: string; disabled?: boolean; onSelect: () => void }[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    document.addEventListener('pointerdown', outside);
+    return () => document.removeEventListener('pointerdown', outside);
+  }, [open]);
+  return (
+    <div className="more" ref={ref}>
+      <button type="button" className="btn" aria-label={label} aria-expanded={open} onClick={() => setOpen(!open)}>
+        More
+      </button>
+      {open ? (
+        <div className="more-menu" role="group" aria-label={label}>
+          {items.map((i) => (
+            <button
+              type="button"
+              key={i.label}
+              disabled={i.disabled}
+              onClick={() => {
+                setOpen(false);
+                i.onSelect();
+              }}
+            >
+              {i.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** What a log entry was, e.g. 'Flowering' or '2 photos'. */
 export function obsLabel(o: Observation) {

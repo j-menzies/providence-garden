@@ -25,8 +25,8 @@ interface Props {
   editGeometry: Geometry | null;
   userFix: Fix | null;
   flyTo: { centre: [number, number]; zoom?: number; seq: number } | null;
-  /** Space taken by an open panel, so centring keeps features visible. */
-  panelOpen: boolean;
+  /** Map covered by an open panel (a bottom sheet's height, or a side panel's width), so centring keeps features visible. */
+  panelInset: { bottom: number; right: number };
   onSelect: (id: string | null) => void;
   onMapTap: (lngLat: [number, number]) => void;
   onEditChange: (g: Geometry) => void;
@@ -207,11 +207,8 @@ export function MapView(p: Props) {
   }, [p.mode, p.editGeometry]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const wide = window.innerWidth >= 900;
-    map.setPadding(p.panelOpen ? (wide ? { top: 0, bottom: 0, left: 0, right: 400 } : { top: 0, left: 0, right: 0, bottom: Math.round(window.innerHeight * 0.55) }) : { top: 0, bottom: 0, left: 0, right: 0 });
-  }, [p.panelOpen]);
+    mapRef.current?.setPadding({ top: 0, left: 0, bottom: p.panelInset.bottom, right: p.panelInset.right });
+  }, [p.panelInset.bottom, p.panelInset.right]);
 
   useEffect(() => {
     if (!p.flyTo || !mapRef.current) return;
