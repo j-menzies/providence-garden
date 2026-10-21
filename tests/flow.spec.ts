@@ -277,12 +277,18 @@ test('items report lists everything and filters it', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Reports' }).click();
   await expect(count).toHaveText('108 of 108 items');
+  // On a phone the filters fold away behind a button that counts them.
+  await expect(page.locator('#report-status')).toBeHidden();
+  await page.getByRole('button', { name: /^Filters/ }).click();
   await page.selectOption('#report-status', 'rough');
   await expect(count).toHaveText('15 of 108 items');
   // Dingley Dell's rough items: two air vents and five birches.
   await page.selectOption('#report-area', 'bed-dingley-dell');
   await expect(count).toHaveText('7 of 108 items');
+  await expect(page.getByRole('button', { name: /^Filters/ })).toContainText('2');
   await page.screenshot({ path: `${SHOTS}/13-report.png` });
+  await page.getByRole('button', { name: 'Remove filter: Rough' }).click();
+  await expect(count).toHaveText('25 of 108 items');
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(count).toHaveText('108 of 108 items');
   await page.selectOption('#report-type', 'tree');

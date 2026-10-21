@@ -93,7 +93,13 @@ export function ItemsReport(p: { features: Feature[]; observations: Observation[
       if (sort === 'bed') return (a.bed?.name ?? '￿').localeCompare(b.bed?.name ?? '￿') || byName;
       return byName;
     });
-  const filtered = Boolean(q || type || area || status);
+  // Search stays in view; the other filters fold away on phones and show as removable chips when set.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const chips = [
+    type ? { id: 'type', label: typeOf(type).label, clear: () => setType('') } : null,
+    area ? { id: 'area', label: area === 'none' ? 'Not in a bed' : `In ${byId[area]?.name}`, clear: () => setArea('') } : null,
+    status ? { id: 'status', label: STATUS_LABEL[status as PositionStatus], clear: () => setStatus('') } : null,
+  ].filter((c) => c !== null);
 
   return (
     <section className="report" aria-label="Items report">
@@ -106,50 +112,68 @@ export function ItemsReport(p: { features: Feature[]; observations: Observation[
             </span>
           </div>
         </div>
-        <button type="button" className="close" onClick={p.onClose} aria-label="Close report">
-          ×
-        </button>
+        <div className="report-head-actions">
+          <button type="button" className="btn" aria-label="Download spreadsheet" disabled={!shown.length} onClick={() => deliverFile(new Blob([toCsv(shown)], { type: 'text/csv' }), `providence-garden-items-${new Date().toLocaleDateString('en-CA')}.csv`)}>
+            Download
+          </button>
+          <button type="button" className="close" onClick={p.onClose} aria-label="Close report">
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="report-filters">
-        <input id="report-search" type="search" value={q} placeholder="Search names, species, notes" aria-label="Search" onChange={(e) => setQ(e.target.value)} />
-        <select id="report-type" value={type} aria-label="Type" onChange={(e) => setType(e.target.value)}>
-          <option value="">All types</option>
-          {LAYERS.map((l) => {
-            const inLayer = types.filter((t) => t.layer === l.id);
-            return inLayer.length ? (
-              <optgroup key={l.id} label={l.label}>
-                {inLayer.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null;
-          })}
-        </select>
-        <select id="report-area" value={area} aria-label="In" onChange={(e) => setArea(e.target.value)}>
-          <option value="">All beds</option>
-          <option value="none">Not in a bed</option>
-          {areas.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        <select id="report-status" value={status} aria-label="On the map" onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Any map status</option>
-          <option value="refined">Placed</option>
-          <option value="rough">Rough</option>
-          <option value="unplaced">Not on map</option>
-        </select>
-        <select id="report-sort" value={sort} aria-label="Sort" onChange={(e) => setSort(e.target.value as typeof sort)}>
-          <option value="name">Sort: name</option>
-          <option value="recent">Sort: latest log</option>
-          <option value="bed">Sort: bed</option>
-        </select>
-        <div className="report-actions">
-          {filtered ? (
+        <div className="report-search">
+          <input id="report-search" type="search" value={q} placeholder="Search names, species, notes" aria-label="Search" onChange={(e) => setQ(e.target.value)} />
+          <button type="button" className="btn filters-toggle" aria-expanded={filtersOpen} aria-controls="report-filter-panel" onClick={() => setFiltersOpen(!filtersOpen)}>
+            Filters
+            {chips.length ? <span className="badge">{chips.length}</span> : null}
+          </button>
+        </div>
+        <div id="report-filter-panel" className={`report-filter-panel ${filtersOpen ? 'open' : ''}`}>
+          <select id="report-type" value={type} aria-label="Type" onChange={(e) => setType(e.target.value)}>
+            <option value="">All types</option>
+            {LAYERS.map((l) => {
+              const inLayer = types.filter((t) => t.layer === l.id);
+              return inLayer.length ? (
+                <optgroup key={l.id} label={l.label}>
+                  {inLayer.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null;
+            })}
+          </select>
+          <select id="report-area" value={area} aria-label="In" onChange={(e) => setArea(e.target.value)}>
+            <option value="">All beds</option>
+            <option value="none">Not in a bed</option>
+            {areas.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <select id="report-status" value={status} aria-label="On the map" onChange={(e) => setStatus(e.target.value)}>
+            <option value="">Any map status</option>
+            <option value="refined">Placed</option>
+            <option value="rough">Rough</option>
+            <option value="unplaced">Not on map</option>
+          </select>
+          <select id="report-sort" value={sort} aria-label="Sort" onChange={(e) => setSort(e.target.value as typeof sort)}>
+            <option value="name">Sort: name</option>
+            <option value="recent">Sort: latest log</option>
+            <option value="bed">Sort: bed</option>
+          </select>
+        </div>
+        {chips.length || q ? (
+          <div className="filter-chips">
+            {chips.map((c) => (
+              <button type="button" key={c.id} className="filter-chip" aria-label={`Remove filter: ${c.label}`} onClick={c.clear}>
+                {c.label} <span aria-hidden="true">×</span>
+              </button>
+            ))}
             <button
               type="button"
               className="btn btn-quiet"
@@ -162,11 +186,8 @@ export function ItemsReport(p: { features: Feature[]; observations: Observation[
             >
               Clear filters
             </button>
-          ) : null}
-          <button type="button" className="btn" disabled={!shown.length} onClick={() => deliverFile(new Blob([toCsv(shown)], { type: 'text/csv' }), `providence-garden-items-${new Date().toLocaleDateString('en-CA')}.csv`)}>
-            Download spreadsheet
-          </button>
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="report-body">
@@ -211,7 +232,7 @@ export function ItemsReport(p: { features: Feature[]; observations: Observation[
                     <td className="c-bed">{r.bed?.name}</td>
                     {/* Planting groups are named after their species; phones don't repeat it. */}
                     <td className={`c-species ${r.taxon && r.f.name.startsWith(r.taxon.name) ? 'c-same' : ''}`}>{r.taxon ? <span className="taxon-name">{r.taxon.name}</span> : null}</td>
-                    <td className="c-qty num">{r.f.quantity}</td>
+                    <td className="c-qty num">{r.f.quantity && r.f.quantity > 1 ? r.f.quantity : null}</td>
                     <td className="c-map">
                       <StatusChip status={r.f.positionStatus} accuracy={r.f.gpsAccuracy} />
                     </td>

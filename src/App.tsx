@@ -151,6 +151,17 @@ export default function App() {
     );
   }, [gpsActive]);
 
+  // Capturing a point by GPS: centre the map on you once, so you can see where it will be saved.
+  const centredOnFix = useRef(false);
+  useEffect(() => {
+    const byGps = panel === 'capture' && capture && !capture.geometry && typeOf(capture.typeId).geometry === 'point';
+    if (!byGps) centredOnFix.current = false;
+    else if (fix && !centredOnFix.current) {
+      centredOnFix.current = true;
+      fly([fix.lng, fix.lat]);
+    }
+  }, [panel, capture, fix]);
+
   const flash = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 3500);
@@ -873,6 +884,50 @@ function CapturePanel(p: {
   );
 }
 
+function LogSection({ feature, observations, onAdd }: { feature: Feature; observations: Observation[]; onAdd: (o: Observation) => Promise<void> }) {
+  const [kind, setKind] = useState<ObservationKind>('note');
+  const [text, setText] = useState('');
+  return (
+    <section className="field">
+      <span className="label">Log</span>
+      <div className="obs-add">
+        <select id="obs-kind" value={kind} onChange={(e) => setKind(e.target.value as ObservationKind)} aria-label="Kind of entry">
+          {OBS_KINDS.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.label}
+            </option>
+          ))}
+        </select>
+        <input id="obs-text" value={text} placeholder="What did you see?" onChange={(e) => setText(e.target.value)} />
+        <button
+          type="button"
+          className="btn"
+          disabled={!text.trim()}
+          onClick={async () => {
+            await onAdd({ id: newId('obs'), featureId: feature.id, kind, at: new Date().toISOString(), text: text.trim(), photoIds: [] });
+            setText('');
+          }}
+        >
+          Add
+        </button>
+      </div>
+      {observations.length ? (
+        <ol className="log">
+          {observations.map((o) => (
+            <li key={o.id}>
+              <span className="log-date num">{fmtDate(o.at)}</span>
+              <span className="log-kind">{obsLabel(o)}</span>
+              {o.text ? <span className="log-text">{o.text}</span> : null}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="muted small">Nothing logged yet.</p>
+      )}
+    </section>
+  );
+}
+
 function FeaturePanel(p: {
   feature: Feature;
   parent?: Feature;
@@ -898,10 +953,11 @@ function FeaturePanel(p: {
   const f = p.feature;
   const t = typeOf(f.type);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [obsKind, setObsKind] = useState<ObservationKind>('note');
-  const [obsText, setObsText] = useState('');
   const photoRef = useRef<HTMLInputElement>(null);
-  const set = (patch: Partial<Feature>) => p.onChange({ ...f, ...patch, updatedAt: new Date().toISOString() });
+  const set = (patch: Partial<Feature>) => {
+    p.onChange({ ...f, ...patch, updatedAt: new Date().toISOString() });
+    p.flash('Saved.');
+  };
   const taxon = p.taxa.find((x) => x.id === f.taxonId);
   const photoIds = p.observations.flatMap((o) => o.photoIds);
 
@@ -936,36 +992,54 @@ function FeaturePanel(p: {
         onClose={p.onClose}
       />
 
-      <div className="pos-actions">
-        {f.positionStatus === 'unplaced' ? (
-          <button type="button" className="btn btn-primary" onClick={p.onPlace}>
-            Put it on the map
-          </button>
-        ) : (
-          <>
+      {/* The action the position needs next leads; occasional map edits sit quietly underneath. */}
+      <section className="field">
+        <span className="label">Position</span>
+        <div className="pos-box">
+          <span>{f.positionStatus === 'unplaced' ? 'Not on the map yet' : f.positionStatus === 'rough' ? 'Rough: check it on site' : 'Placed on the map'}</span>
+          {f.positionStatus === 'unplaced' ? (
+            <button type="button" className="btn btn-primary" onClick={p.onPlace}>
+              Put it on the map
+            </button>
+          ) : (
             <button type="button" className={`btn ${f.positionStatus === 'rough' ? 'btn-primary' : ''}`} onClick={p.onRefine}>
               Refine position
             </button>
-            {t.geometry !== 'point' ? (
-              <button type="button" className="btn" onClick={p.onRedraw}>
-                Redraw
-              </button>
-            ) : null}
+          )}
+        </div>
+        {f.positionStatus !== 'unplaced' && t.geometry !== 'point' ? (
+          <div className="pos-more">
+            <button type="button" className="btn btn-quiet" onClick={p.onRedraw}>
+              Redraw
+            </button>
             {t.geometry === 'polygon' ? (
               <>
-                <button type="button" className="btn" onClick={p.onAddHole}>
+                <button type="button" className="btn btn-quiet" onClick={p.onAddHole}>
                   Add a hole
                 </button>
-                <button type="button" className="btn" onClick={p.onAddPart}>
+                <button type="button" className="btn btn-quiet" onClick={p.onAddPart}>
                   Add a part
                 </button>
               </>
             ) : null}
-          </>
-        )}
-        <button type="button" className="btn" onClick={() => photoRef.current?.click()}>
-          Add photo
-        </button>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="field">
+        <span className="label">Photos</span>
+        <div className="photo-row">
+          <button type="button" className="thumb thumb-add" onClick={() => photoRef.current?.click()}>
+            + Photo
+          </button>
+          {photoIds.length ? (
+            <div className="thumbs thumbs-strip">
+              {photoIds.map((id) => (
+                <Thumb key={id} id={id} onOpen={p.onPhoto} />
+              ))}
+            </div>
+          ) : null}
+        </div>
         <input
           ref={photoRef}
           id="feature-photo"
@@ -979,15 +1053,9 @@ function FeaturePanel(p: {
             e.target.value = '';
           }}
         />
-      </div>
+      </section>
 
-      {photoIds.length ? (
-        <div className="thumbs thumbs-strip">
-          {photoIds.map((id) => (
-            <Thumb key={id} id={id} onOpen={p.onPhoto} />
-          ))}
-        </div>
-      ) : null}
+      <LogSection feature={f} observations={p.observations} onAdd={p.onAddObservation} />
 
       <label className="field">
         <span className="label">Name</span>
@@ -1069,44 +1137,6 @@ function FeaturePanel(p: {
           </ul>
         </section>
       ) : null}
-
-      <section className="field">
-        <span className="label">Log</span>
-        <div className="obs-add">
-          <select id="obs-kind" value={obsKind} onChange={(e) => setObsKind(e.target.value as ObservationKind)} aria-label="Kind of entry">
-            {OBS_KINDS.map((k) => (
-              <option key={k.id} value={k.id}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-          <input id="obs-text" value={obsText} placeholder="What did you see?" onChange={(e) => setObsText(e.target.value)} />
-          <button
-            type="button"
-            className="btn"
-            disabled={!obsText.trim()}
-            onClick={async () => {
-              await p.onAddObservation({ id: newId('obs'), featureId: f.id, kind: obsKind, at: new Date().toISOString(), text: obsText.trim(), photoIds: [] });
-              setObsText('');
-            }}
-          >
-            Add
-          </button>
-        </div>
-        {p.observations.length ? (
-          <ol className="log">
-            {p.observations.map((o) => (
-              <li key={o.id}>
-                <span className="log-date num">{fmtDate(o.at)}</span>
-                <span className="log-kind">{obsLabel(o)}</span>
-                {o.text ? <span className="log-text">{o.text}</span> : null}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="muted small">Nothing logged yet.</p>
-        )}
-      </section>
 
       <p className="muted small">
         {f.source ? `Source: ${f.source}. ` : ''}Updated {fmtDate(f.updatedAt)}.
@@ -1196,7 +1226,8 @@ function RegisterPanel({ features, byId, taxa, onOpen, onClose }: { features: Fe
                       {f.name}
                       {f.quantity && f.quantity > 1 ? <span className="muted num"> ×{f.quantity}</span> : null}
                     </span>
-                    <StatusChip status={f.positionStatus} accuracy={f.gpsAccuracy} />
+                    {/* Everything in "To place" is off the map, so the type says more there. */}
+                    {tab === 'unplaced' ? <span className="muted small">{typeOf(f.type).label}</span> : <StatusChip status={f.positionStatus} accuracy={f.gpsAccuracy} />}
                   </button>
                 </li>
               ))}
@@ -1250,6 +1281,36 @@ function LayersPanel(p: {
         ))}
       </ul>
       <section className="field">
+        <span className="label">Key</span>
+        <ul className="map-key">
+          <li>
+            <svg viewBox="0 0 28 16" aria-hidden="true">
+              <rect x="2" y="2" width="24" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+            </svg>
+            Placed
+          </li>
+          <li>
+            <svg viewBox="0 0 28 16" aria-hidden="true">
+              <rect x="2" y="2" width="24" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5 3" />
+            </svg>
+            Rough outline or line: an estimate to check on site
+          </li>
+          <li>
+            <svg viewBox="0 0 28 16" aria-hidden="true">
+              <circle cx="14" cy="8" r="5" fill="#7be0a0" stroke="#f2b84b" strokeWidth="2.5" />
+            </svg>
+            Rough point: a GPS fix or an estimate to check
+          </li>
+          <li>
+            <svg viewBox="0 0 28 16" aria-hidden="true">
+              <line x1="2" y1="8" x2="26" y2="8" stroke="#ff8a8a" strokeWidth="3" strokeDasharray="6 4" />
+            </svg>
+            Cable runs are always dashed
+          </li>
+        </ul>
+        <p className="hint">Tap anything rough and choose Refine position to drag it into place.</p>
+      </section>
+      <section className="field">
         <span className="label">Base map</span>
         <label className="check">
           <input id="aerial-on" type="checkbox" checked={p.aerial} onChange={(e) => p.setAerial(e.target.checked)} /> Aerial imagery
@@ -1258,7 +1319,6 @@ function LayersPanel(p: {
           <span className="small muted">Imagery strength</span>
           <input id="aerial-opacity" type="range" min={0.2} max={1} step={0.05} value={p.opacity} onChange={(e) => p.setOpacity(Number(e.target.value))} disabled={!p.aerial} />
         </label>
-        <p className="hint">Rough GPS positions have an amber ring. Tap one and choose Refine position to drag it into place.</p>
       </section>
     </div>
   );
@@ -1286,7 +1346,7 @@ function DataPanel(p: { features: Feature[]; observations: Observation[]; taxa: 
       <PanelHead title="Your data" onClose={p.onClose} />
       <dl className="stats">
         <div>
-          <dt>Features</dt>
+          <dt>Items</dt>
           <dd className="num">{p.features.length}</dd>
         </div>
         <div>
@@ -1347,7 +1407,7 @@ function DataPanel(p: { features: Feature[]; observations: Observation[]; taxa: 
             try {
               const r = await restoreBackup(file);
               await p.onRestored();
-              p.flash(`Restored ${r.features} features, ${r.observations} log entries and ${r.photos} photos.`);
+              p.flash(`Restored ${r.features} items, ${r.observations} log entries and ${r.photos} photos.`);
             } catch (x) {
               setErr((x as Error).message);
             }
