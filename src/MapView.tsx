@@ -73,7 +73,10 @@ export function MapView(p: Props) {
 
       map.addLayer({ id: 'poly-fill', type: 'fill', source: 'features', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': ['get', 'colour'], 'fill-opacity': ['case', ['get', 'selected'], 0.45, ['==', ['get', 'type'], 'bed'], 0.12, 0.28] } });
       map.addLayer({ id: 'poly-line', type: 'line', source: 'features', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'line-color': ['case', ['get', 'selected'], '#ffffff', ['get', 'colour']], 'line-width': ['case', ['get', 'selected'], 3, ['==', ['get', 'type'], 'bed'], 2.5, 1.5] } });
-      map.addLayer({ id: 'lines', type: 'line', source: 'features', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['case', ['get', 'selected'], '#ffffff', ['get', 'colour']], 'line-width': ['case', ['get', 'selected'], 5, 3.5], 'line-dasharray': ['case', ['==', ['get', 'layer'], 'power'], ['literal', [2, 1.5]], ['literal', [1, 0]]] } });
+      // MapLibre 4 can't vary line-dasharray per feature, so power runs get their own dashed layer.
+      const linePaint: maplibregl.LineLayerSpecification['paint'] = { 'line-color': ['case', ['get', 'selected'], '#ffffff', ['get', 'colour']], 'line-width': ['case', ['get', 'selected'], 5, 3.5] };
+      map.addLayer({ id: 'lines', type: 'line', source: 'features', filter: ['all', ['==', ['geometry-type'], 'LineString'], ['!=', ['get', 'layer'], 'power']], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: linePaint });
+      map.addLayer({ id: 'lines-power', type: 'line', source: 'features', filter: ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'layer'], 'power']], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { ...linePaint, 'line-dasharray': [2, 1.5] } });
       map.addLayer({ id: 'accuracy', type: 'fill', source: 'accuracy', paint: { 'fill-color': '#f2b84b', 'fill-opacity': 0.18, 'fill-outline-color': '#f2b84b' } });
       map.addLayer({ id: 'points', type: 'circle', source: 'features', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': ['get', 'colour'], 'circle-radius': ['interpolate', ['linear'], ['zoom'], 16, 4, 20, ['case', ['get', 'selected'], 11, 8]], 'circle-stroke-width': ['case', ['get', 'selected'], 3, 2], 'circle-stroke-color': ['case', ['get', 'selected'], '#ffffff', ['==', ['get', 'status'], 'rough'], '#f2b84b', '#14201a'] } });
 
@@ -97,9 +100,9 @@ export function MapView(p: Props) {
         [e.point.x - 10, e.point.y - 10],
         [e.point.x + 10, e.point.y + 10],
       ];
-      const hits = map.queryRenderedFeatures(box, { layers: ['points', 'lines', 'poly-fill'] });
       // Prefer points, then lines, then the smallest polygon under the tap.
-      const order = ['points', 'lines', 'poly-fill'];
+      const order = ['points', 'lines', 'lines-power', 'poly-fill'];
+      const hits = map.queryRenderedFeatures(box, { layers: order });
       hits.sort((a, b) => order.indexOf(a.layer.id) - order.indexOf(b.layer.id) || (a.properties.area ?? 0) - (b.properties.area ?? 0));
       cur.onSelect(hits[0] ? String(hits[0].properties.id) : null);
     });

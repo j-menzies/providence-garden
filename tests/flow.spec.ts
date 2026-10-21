@@ -90,6 +90,31 @@ test('capture, refine, place from register, back up', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('lines show on the map and can be tapped', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  // A cable run is dashed and a hedge is solid; they're drawn by separate map layers.
+  for (const [type, name, dy] of [['Cable run', 'Cable to the pump', -60], ['Hedge', 'Yew hedge', 60]] as const) {
+    await page.getByRole('button', { name: 'Capture' }).click();
+    await page.getByRole('button', { name: type, exact: true }).click();
+    await tapMap(page, -100, dy);
+    await tapMap(page, 100, dy);
+    await page.getByRole('button', { name: 'Done' }).click();
+    await page.fill('#capture-name', name);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.locator('.panel-head h2')).toHaveText(name);
+    // Saving flies to the middle of the line (600ms). Closing the panel mid-flight stops the camera short.
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: 'Close panel' }).click();
+    await expect(async () => {
+      await tapMap(page, 0, 0);
+      await expect(page.locator('.panel-head h2')).toHaveText(name, { timeout: 1000 });
+    }).toPass();
+    await page.screenshot({ path: `${SHOTS}/09-line-${type === 'Hedge' ? 'hedge' : 'cable'}.png` });
+    await page.getByRole('button', { name: 'Close panel' }).click();
+  }
+});
+
 test('desktop dark layout', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
   const page = await ctx.newPage();
