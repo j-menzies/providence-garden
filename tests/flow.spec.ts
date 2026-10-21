@@ -115,6 +115,73 @@ test('lines show on the map and can be tapped', async ({ page }) => {
   }
 });
 
+const areaIn = async (page: Page, selector: string) => Number((await page.locator(selector).textContent())!.match(/(\d+) m²/)![1]);
+
+test('moat with islands cut out of it', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  await page.getByRole('button', { name: 'Capture' }).click();
+  await page.getByRole('button', { name: 'Moat or pond' }).click();
+  for (const [dx, dy] of [[-60, -60], [60, -60], [60, 60], [-60, 60]]) await tapMap(page, dx, dy);
+  await page.getByRole('button', { name: 'Done' }).click();
+  const solid = await areaIn(page, '.pos-box span');
+
+  // Redraw keeps the outline, so carry on and trace the island in the middle as a hole.
+  await page.getByRole('button', { name: 'Redraw' }).click();
+  await page.getByRole('button', { name: 'Add a hole' }).click();
+  await expect(page.getByText(/Tap round the hole/)).toBeVisible();
+  for (const [dx, dy] of [[-30, -30], [30, -30], [30, 30], [-30, 30]]) await tapMap(page, dx, dy);
+  await page.getByRole('button', { name: 'Done' }).click();
+  const ring = await areaIn(page, '.pos-box span');
+  expect(ring / solid).toBeCloseTo(0.75, 1);
+  await page.fill('#capture-name', 'The moat');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.panel-head h2')).toHaveText('The moat');
+  await page.waitForTimeout(1000);
+  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.screenshot({ path: `${SHOTS}/10-moat.png` });
+
+  // Saving zooms in on the moat: water is 80-160px from the centre, the island within 80px.
+  await expect(async () => {
+    await tapMap(page, 0, 120);
+    await expect(page.locator('.panel-head h2')).toHaveText('The moat', { timeout: 1000 });
+  }).toPass();
+  await page.getByRole('button', { name: 'Close panel' }).click();
+  await tapMap(page, 0, 0);
+  await page.waitForTimeout(500);
+  await expect(page.locator('.panel-head h2')).toBeHidden();
+
+  // Refining moves island corners too, and keeps the hole.
+  await tapMap(page, 0, 120);
+  await page.getByRole('button', { name: 'Refine position' }).click();
+  await expect(page.locator('.handle')).toHaveCount(8);
+  await page.waitForTimeout(1000);
+  const hb = (await page.locator('.handle').nth(4).boundingBox())!;
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2 + 10, hb.y + hb.height / 2 + 10, { steps: 5 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Save position' }).click();
+  const refined = await areaIn(page, '.panel-sub .num');
+  expect(refined / ring).toBeCloseTo(1, 1);
+
+  // A second island from the panel. At zoom 20 the water is 160-320px from the centre; the
+  // drawing toolbar covers the bottom of the map, so trace it above the first island.
+  await page.getByRole('button', { name: 'Add a hole' }).click();
+  await expect(page.getByText('Hole in The moat')).toBeVisible();
+  await page.waitForTimeout(1000);
+  for (const [dx, dy] of [[-20, -290], [20, -290], [-150, -340]]) await tapMap(page, dx, dy);
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByText('A hole has to be inside the outer edge.')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  for (const [dx, dy] of [[20, -200], [-20, -200]]) await tapMap(page, dx, dy);
+  await page.getByRole('button', { name: 'Done' }).click();
+  const twoIslands = await areaIn(page, '.pos-box span');
+  expect(twoIslands).toBeLessThan(refined);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.panel-sub .num')).toHaveText(`${twoIslands} m²`);
+});
+
 test('desktop dark layout', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
   const page = await ctx.newPage();

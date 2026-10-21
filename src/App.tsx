@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapView, HOME, type MapMode } from './MapView';
 import { LAYERS, TYPES, typeOf } from './catalogue';
 import { deleteFeature, ensureSeeded, getMeta, loadAll, newId, putFeature, putObservation, putPhoto, putTaxon } from './db';
-import { centre, measure, pointInPolygon, preparePhoto, watchFix, type Fix } from './geo';
+import { centre, inPolygon, measure, openRings, pointInPolygon, polygon, preparePhoto, watchFix, type Fix } from './geo';
 import { buildBackup, deliverFile, restoreBackup, toGeoJSON } from './backup';
 import type { Feature, Geometry, Observation, ObservationKind, Party, Taxon } from './model';
 import { PhotoViewer, StatusChip, TaxonPicker, Thumb } from './components';
@@ -44,6 +44,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<MapMode>('browse');
   const [draft, setDraft] = useState<[number, number][]>([]);
+  /** Finished rings of a polygon being drawn: the outer edge, then any holes. */
+  const [draftRings, setDraftRings] = useState<[number, number][][]>([]);
   const [capture, setCapture] = useState<Capture | null>(null);
   const [editGeometry, setEditGeometry] = useState<Geometry | null>(null);
 
@@ -133,7 +135,7 @@ export default function App() {
     for (const b of beds) {
       if (b.id === exclude || b.geometry?.type !== 'Polygon') continue;
       const ring = b.geometry.coordinates[0];
-      if (!pointInPolygon(pt, ring)) continue;
+      if (!inPolygon(pt, b.geometry.coordinates)) continue;
       const xs = ring.map((p) => p[0]);
       const ys = ring.map((p) => p[1]);
       const size = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
@@ -152,6 +154,7 @@ export default function App() {
     setSelectedId(existing?.id ?? null);
     setCapture({ featureId: existing?.id, typeId, name: existing?.name ?? '', taxonId: existing?.taxonId, quantity: existing?.quantity, notes: '', photos: [], geometry: null });
     setDraft([]);
+    setDraftRings([]);
     if (t.geometry === 'point') {
       setMode('browse');
       setPanel('capture');
@@ -165,11 +168,20 @@ export default function App() {
     }
   }
 
+  /** Cut a hole, such as the island in the moat, out of a shape already on the map. */
+  function beginHole(f: Feature) {
+    if (f.geometry?.type !== 'Polygon') return;
+    beginCapture(f.type, f);
+    setDraftRings(openRings(f.geometry));
+    fly(centre(f.geometry));
+  }
+
   function cancelCapture() {
     capture?.photos.forEach((p) => URL.revokeObjectURL(p.url));
     const back = capture?.featureId;
     setCapture(null);
     setDraft([]);
+    setDraftRings([]);
     setMode('browse');
     setPanel(back ? 'feature' : null);
   }
@@ -184,10 +196,35 @@ export default function App() {
     }
   }
 
+  /** Holes have to sit inside the outer edge. */
+  function holeFits(ring: [number, number][]) {
+    if (draftRings.length && !ring.every((pt) => pointInPolygon(pt, draftRings[0]))) {
+      flash('A hole has to be inside the outer edge.');
+      return false;
+    }
+    return true;
+  }
+
+  /** Close the ring being drawn and start tracing a hole inside the shape. */
+  function addHole() {
+    if (draft.length < 3 || !holeFits(draft)) return;
+    setDraftRings((r) => [...r, draft]);
+    setDraft([]);
+  }
+
+  function undoPoint() {
+    // With nothing in the current ring, step back into the ring before it.
+    if (!draft.length && draftRings.length) {
+      setDraft(draftRings[draftRings.length - 1]);
+      setDraftRings((r) => r.slice(0, -1));
+    } else setDraft((d) => d.slice(0, -1));
+  }
+
   function finishDrawing() {
     if (!capture) return;
     const kind = typeOf(capture.typeId).geometry;
-    const g: Geometry = kind === 'polygon' ? { type: 'Polygon', coordinates: [[...draft, draft[0]]] } : { type: 'LineString', coordinates: draft };
+    if (kind === 'polygon' && draft.length && !holeFits(draft)) return;
+    const g: Geometry = kind === 'polygon' ? polygon(draft.length ? [...draftRings, draft] : draftRings) : { type: 'LineString', coordinates: draft };
     setCapture({ ...capture, geometry: g });
     setMode('browse');
     setPanel('capture');
@@ -250,6 +287,7 @@ export default function App() {
     }
     setCapture(null);
     setDraft([]);
+    setDraftRings([]);
     setMode('browse');
     setSelectedId(f.id);
     setPanel('feature');
@@ -270,8 +308,9 @@ export default function App() {
 
   async function finishRefine() {
     if (!selected || !editGeometry) return;
-    const f: Feature = { ...selected, geometry: editGeometry, positionStatus: 'refined', gpsAccuracy: undefined };
-    if (f.type !== 'bed' && f.type !== 'water-body') f.parentId = containingArea(centre(editGeometry), f.id) ?? f.parentId;
+    const geometry = editGeometry.type === 'Polygon' ? polygon(openRings(editGeometry)) : editGeometry;
+    const f: Feature = { ...selected, geometry, positionStatus: 'refined', gpsAccuracy: undefined };
+    if (f.type !== 'bed' && f.type !== 'water-body') f.parentId = containingArea(centre(geometry), f.id) ?? f.parentId;
     await saveFeature(f);
     setEditGeometry(null);
     setMode('browse');
@@ -295,7 +334,9 @@ export default function App() {
   // ---------- render ----------
 
   const drawType = capture ? typeOf(capture.typeId) : null;
-  const minPts = drawType?.geometry === 'polygon' ? 3 : 2;
+  const drawingHole = draftRings.length > 0;
+  // A polygon is done once its current ring has three corners, or straight after Add a hole if no hole is wanted after all.
+  const canFinish = drawType?.geometry === 'polygon' ? draft.length >= 3 || (drawingHole && !draft.length) : draft.length >= 2;
 
   return (
     <div className="app">
@@ -327,6 +368,7 @@ export default function App() {
           selectedId={selectedId}
           mode={mode}
           draft={draft}
+          draftRings={draftRings}
           draftKind={drawType?.geometry ?? 'point'}
           editGeometry={editGeometry}
           userFix={fix}
@@ -370,9 +412,12 @@ export default function App() {
         {mode === 'draw' && drawType ? (
           <div className="toolbar" role="toolbar" aria-label="Drawing">
             <div className="toolbar-text">
-              <strong>{capture?.featureId ? `Place ${byId[capture.featureId]?.name}` : `New ${drawType.label.toLowerCase()}`}</strong>
+              <strong>
+                {drawingHole ? 'Hole in ' : capture?.featureId ? 'Place ' : 'New '}
+                {capture?.featureId ? byId[capture.featureId]?.name : `${drawingHole ? 'the new ' : ''}${drawType.label.toLowerCase()}`}
+              </strong>
               <span>
-                {drawType.hint ?? 'Tap each corner on the map'}. {draft.length} point{draft.length === 1 ? '' : 's'}.
+                {drawingHole ? 'Tap round the hole, such as an island' : drawType.hint ?? 'Tap each corner on the map'}. {draft.length} point{draft.length === 1 ? '' : 's'}.
               </span>
               <span className="muted small">{fix ? `GPS ±${Math.round(fix.accuracy)}m` : gpsError ?? 'Waiting for GPS…'}</span>
             </div>
@@ -380,13 +425,18 @@ export default function App() {
               <button type="button" className="btn btn-quiet" onClick={cancelCapture}>
                 Cancel
               </button>
-              <button type="button" className="btn" disabled={!draft.length} onClick={() => setDraft((d) => d.slice(0, -1))}>
+              <button type="button" className="btn" disabled={!draft.length && !drawingHole} onClick={undoPoint}>
                 Undo
               </button>
               <button type="button" className="btn" disabled={!fix} onClick={() => fix && setDraft((d) => [...d, [fix.lng, fix.lat]])}>
                 Add my position
               </button>
-              <button type="button" className="btn btn-primary" disabled={draft.length < minPts} onClick={finishDrawing}>
+              {drawType.geometry === 'polygon' ? (
+                <button type="button" className="btn" disabled={draft.length < 3} onClick={addHole}>
+                  Add a hole
+                </button>
+              ) : null}
+              <button type="button" className="btn btn-primary" disabled={!canFinish} onClick={finishDrawing}>
                 Done
               </button>
             </div>
@@ -485,6 +535,7 @@ export default function App() {
                 onPlace={() => beginCapture(selected.type, selected)}
                 onRefine={() => beginRefine(selected)}
                 onRedraw={() => beginCapture(selected.type, selected)}
+                onAddHole={() => beginHole(selected)}
                 onOpenFeature={openFeature}
                 onAddObservation={async (o) => {
                   await putObservation(o);
@@ -698,6 +749,7 @@ function FeaturePanel(p: {
   onPlace: () => void;
   onRefine: () => void;
   onRedraw: () => void;
+  onAddHole: () => void;
   onOpenFeature: (f: Feature) => void;
   onAddObservation: (o: Observation) => Promise<void>;
   onPhoto: (id: string) => void;
@@ -759,6 +811,11 @@ function FeaturePanel(p: {
             {t.geometry !== 'point' ? (
               <button type="button" className="btn" onClick={p.onRedraw}>
                 Redraw
+              </button>
+            ) : null}
+            {t.geometry === 'polygon' ? (
+              <button type="button" className="btn" onClick={p.onAddHole}>
+                Add a hole
               </button>
             ) : null}
           </>

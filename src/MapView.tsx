@@ -3,7 +3,7 @@ import maplibregl, { type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, Geometry } from './model';
 import { typeOf } from './catalogue';
-import { circle, vertices, withVertices, type Fix } from './geo';
+import { circle, openRings, polygon, vertices, withVertices, type Fix } from './geo';
 
 export const HOME: [number, number] = [-0.0698, 51.5014];
 
@@ -18,6 +18,8 @@ interface Props {
   mode: MapMode;
   /** Vertices of a shape being drawn, or the single point being placed. */
   draft: [number, number][];
+  /** Finished rings of a polygon being drawn: the outer edge, then any holes. */
+  draftRings: [number, number][][];
   draftKind: 'point' | 'line' | 'polygon';
   /** Geometry being edited (drag handles shown). */
   editGeometry: Geometry | null;
@@ -141,8 +143,9 @@ export function MapView(p: Props) {
 
     const d = cur.draft;
     const draftFeatures: GeoJSON.Feature[] = d.map((c) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } }));
-    if (cur.draftKind === 'polygon' && d.length >= 3) draftFeatures.push({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[...d, d[0]]] } });
-    else if (cur.draftKind !== 'point' && d.length >= 2) draftFeatures.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: d } });
+    const rings = cur.draftKind === 'polygon' ? [...cur.draftRings, ...(d.length >= 3 ? [d] : [])] : [];
+    if (rings.length) draftFeatures.push({ type: 'Feature', properties: {}, geometry: polygon(rings) });
+    if (cur.draftKind !== 'point' && d.length >= 2 && !(cur.draftKind === 'polygon' && d.length >= 3)) draftFeatures.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: d } });
     if (cur.mode !== 'edit') (map.getSource('draft') as GeoJSONSource).setData({ type: 'FeatureCollection', features: draftFeatures });
 
     const me = cur.userFix;
@@ -163,7 +166,7 @@ export function MapView(p: Props) {
     map.getCanvas().style.cursor = cur.mode === 'draw' || cur.mode === 'place' ? 'crosshair' : '';
   }
 
-  useEffect(sync, [p.features, p.visibleLayers, p.aerial, p.aerialOpacity, p.selectedId, p.mode, p.draft, p.draftKind, p.userFix]);
+  useEffect(sync, [p.features, p.visibleLayers, p.aerial, p.aerialOpacity, p.selectedId, p.mode, p.draft, p.draftRings, p.draftKind, p.userFix]);
 
   // Drag handles for refining a geometry.
   useEffect(() => {
@@ -197,12 +200,8 @@ export function MapView(p: Props) {
     const map = mapRef.current;
     if (!map || !ready.current) return;
     if (p.mode === 'edit' && p.editGeometry && p.editGeometry.type !== 'Point') {
-      const d = vertices(p.editGeometry);
-      const kind = p.editGeometry.type === 'Polygon' ? 'polygon' : 'line';
-      const feats: GeoJSON.Feature[] = [];
-      if (kind === 'polygon') feats.push({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[...d, d[0]]] } });
-      else feats.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: d } });
-      (map.getSource('draft') as GeoJSONSource).setData({ type: 'FeatureCollection', features: feats });
+      const g = p.editGeometry.type === 'Polygon' ? polygon(openRings(p.editGeometry)) : p.editGeometry;
+      (map.getSource('draft') as GeoJSONSource).setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: g }] });
     } else if (p.mode === 'edit') {
       (map.getSource('draft') as GeoJSONSource).setData(empty);
     }
