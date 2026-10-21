@@ -310,6 +310,29 @@ test('items report lists everything and filters it', async ({ page }) => {
   await expect(page.locator('.panel-head h2')).toHaveText('Island silver birch 1');
 });
 
+test('add an entry to the register without placing it', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('.loading')).toBeHidden();
+  const toPlace = Number(await page.locator('.badge').textContent());
+  await page.getByRole('button', { name: /Register/ }).click();
+  await page.getByRole('button', { name: 'New entry' }).click();
+  await page.selectOption('#entry-type', 'drift');
+  await page.locator('#taxon-search').fill('Astrantia');
+  await page.getByRole('button', { name: /Astrantia 'Roma'/ }).first().click();
+  await page.fill('#entry-qty', '5');
+  await page.selectOption('#entry-parent', 'bed-riverside');
+  await page.fill('#entry-notes', 'Bought at the plant sale, in pots by the shed');
+  await page.getByRole('button', { name: 'Add to register' }).click();
+
+  // Named after the species, off the map, and counted in To place.
+  await expect(page.locator('.panel-head h2')).toHaveText("Astrantia 'Roma'");
+  await expect(page.locator('.panel-sub .chip')).toHaveText('Not on map');
+  await expect(page.locator('#feature-parent')).toHaveValue('bed-riverside');
+  await expect(page.locator('.badge')).toHaveText(String(toPlace + 1));
+  await page.getByRole('button', { name: 'Put it on the map' }).click();
+  await expect(page.getByRole('toolbar', { name: 'Drawing' })).toBeVisible();
+});
+
 test('panels drag between peek, half and full on a phone', async ({ page }) => {
   await page.goto('./');
   await expect(page.locator('.loading')).toBeHidden();

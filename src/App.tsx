@@ -9,10 +9,10 @@ import { MoreMenu, OBS_KINDS, PhotoViewer, StatusChip, TaxonPicker, Thumb, fmtDa
 import { ItemsReport } from './Reports';
 
 /** 'reports' fills the screen; the rest open in the side sheet. */
-type Panel = null | 'layers' | 'register' | 'reports' | 'menu' | 'new' | 'capture' | 'feature';
+type Panel = null | 'layers' | 'register' | 'entry' | 'reports' | 'menu' | 'new' | 'capture' | 'feature';
 
 /** What screen readers announce for each panel. */
-const PANEL_LABEL: Record<Exclude<Panel, null>, string> = { layers: 'Layers', register: 'Register', reports: 'Items report', menu: 'Your data', new: 'What are you capturing?', capture: 'Capture', feature: 'Item' };
+const PANEL_LABEL: Record<Exclude<Panel, null>, string> = { layers: 'Layers', register: 'Register', entry: 'New register entry', reports: 'Items report', menu: 'Your data', new: 'What are you capturing?', capture: 'Capture', feature: 'Item' };
 
 /** When panels sit at the side instead of the bottom. Keep in step with styles.css. */
 const SIDE_SHEET = '(min-width: 900px), (orientation: landscape) and (max-height: 500px)';
@@ -363,6 +363,14 @@ export default function App() {
     flash(status === 'rough' ? `Saved at a rough position (±${Math.round(gpsAccuracy!)}m). Refine it on the map when you can.` : 'Saved.');
   }
 
+  /** Adds an entry to the register without placing it, then opens it. */
+  async function addEntry(f: Feature) {
+    await saveFeature(f);
+    setSelectedId(f.id);
+    setPanel('feature');
+    flash('Added to the register.');
+  }
+
   // ---------- refine ----------
 
   function beginRefine(f: Feature) {
@@ -702,7 +710,8 @@ export default function App() {
               />
             ) : null}
 
-            {panel === 'register' ? <RegisterPanel features={features} byId={byId} taxa={taxonById} onOpen={openFeature} onClose={() => setPanel(null)} /> : null}
+            {panel === 'register' ? <RegisterPanel features={features} byId={byId} taxa={taxonById} onOpen={openFeature} onNew={() => setPanel('entry')} onClose={() => setPanel(null)} /> : null}
+            {panel === 'entry' ? <EntryPanel taxa={taxa} beds={beds} onCreateTaxon={createTaxon} onSave={addEntry} onCancel={() => setPanel('register')} /> : null}
 
             {panel === 'layers' ? (
               <LayersPanel
@@ -878,6 +887,100 @@ function CapturePanel(p: {
         </button>
         <button type="button" className="btn btn-primary" disabled={!canSave} onClick={p.onSave}>
           {c.geometry ? 'Save' : fix ? `Save here (±${Math.round(fix.accuracy)}m)` : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A register entry that isn't on the map yet, such as a plant bought but not planted, or a bed from a plan. */
+function EntryPanel(p: { taxa: Taxon[]; beds: Feature[]; onCreateTaxon: (name: string) => Promise<string>; onSave: (f: Feature) => void; onCancel: () => void }) {
+  const [typeId, setTypeId] = useState('specimen');
+  const [name, setName] = useState('');
+  const [taxonId, setTaxonId] = useState<string | undefined>();
+  const [quantity, setQuantity] = useState<number | undefined>();
+  const [parentId, setParentId] = useState('');
+  const [notes, setNotes] = useState('');
+  const t = typeOf(typeId);
+  const isArea = typeId === 'bed' || typeId === 'water-body';
+
+  function save() {
+    const now = new Date().toISOString();
+    const taxonName = t.plant && taxonId ? p.taxa.find((x) => x.id === taxonId)?.name : undefined;
+    p.onSave({
+      id: newId(typeId),
+      type: typeId,
+      name: name.trim() || taxonName || t.label,
+      taxonId: t.plant ? taxonId : undefined,
+      quantity: t.plant && t.geometry === 'polygon' ? quantity : undefined,
+      parentId: isArea ? undefined : parentId || undefined,
+      notes: notes.trim() || undefined,
+      geometry: null,
+      positionStatus: 'unplaced',
+      source: 'Added in the app',
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  return (
+    <div className="panel">
+      <PanelHead title="New register entry" sub="It goes in the register now; put it on the map whenever you're ready." onClose={p.onCancel} />
+      <label className="field">
+        <span className="label">What is it?</span>
+        <select id="entry-type" value={typeId} onChange={(e) => setTypeId(e.target.value)}>
+          {LAYERS.map((l) => (
+            <optgroup key={l.id} label={l.label}>
+              {TYPES.filter((x) => x.layer === l.id).map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      {t.plant ? (
+        <section className="field">
+          <span className="label">Species</span>
+          <TaxonPicker taxa={p.taxa} value={taxonId} onChange={setTaxonId} onCreate={async (n) => setTaxonId(await p.onCreateTaxon(n))} />
+        </section>
+      ) : null}
+      <div className="field-row">
+        <label className="field grow">
+          <span className="label">Name</span>
+          <input id="entry-name" value={name} placeholder={t.plant ? 'Defaults to the species' : t.label} onChange={(e) => setName(e.target.value)} />
+        </label>
+        {t.plant && t.geometry === 'polygon' ? (
+          <label className="field qty">
+            <span className="label">How many</span>
+            <input id="entry-qty" type="number" inputMode="numeric" min={1} value={quantity ?? ''} onChange={(e) => setQuantity(e.target.value ? Number(e.target.value) : undefined)} />
+          </label>
+        ) : null}
+      </div>
+      {isArea ? null : (
+        <label className="field">
+          <span className="label">In</span>
+          <select id="entry-parent" value={parentId} onChange={(e) => setParentId(e.target.value)}>
+            <option value="">Not set</option>
+            {p.beds.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="field">
+        <span className="label">Notes</span>
+        <textarea id="entry-notes" rows={2} value={notes} placeholder="Where it is, supplier, anything useful" onChange={(e) => setNotes(e.target.value)} />
+      </label>
+      <div className="panel-actions">
+        <button type="button" className="btn btn-quiet" onClick={p.onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" onClick={save}>
+          Add to register
         </button>
       </div>
     </div>
@@ -1163,7 +1266,7 @@ function FeaturePanel(p: {
   );
 }
 
-function RegisterPanel({ features, byId, taxa, onOpen, onClose }: { features: Feature[]; byId: Record<string, Feature>; taxa: Record<string, Taxon>; onOpen: (f: Feature) => void; onClose: () => void }) {
+function RegisterPanel({ features, byId, taxa, onOpen, onNew, onClose }: { features: Feature[]; byId: Record<string, Feature>; taxa: Record<string, Taxon>; onOpen: (f: Feature) => void; onNew: () => void; onClose: () => void }) {
   const [tab, setTab] = useState<'unplaced' | 'rough' | 'all'>('unplaced');
   const [q, setQ] = useState('');
   const placed = features.filter((f) => f.positionStatus !== 'unplaced').length;
@@ -1208,7 +1311,12 @@ function RegisterPanel({ features, byId, taxa, onOpen, onClose }: { features: Fe
           </button>
         ))}
       </div>
-      <input id="register-search" type="search" placeholder="Search by name, species or type" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="search-row">
+        <input id="register-search" type="search" placeholder="Search by name, species or type" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button type="button" className="btn" onClick={onNew}>
+          New entry
+        </button>
+      </div>
       {ordered.length === 0 ? <p className="muted">{tab === 'rough' ? 'No rough positions waiting for refinement.' : 'Nothing matches.'}</p> : null}
       {ordered.map(([g, items]) => (
         <section key={g} className="reg-group">

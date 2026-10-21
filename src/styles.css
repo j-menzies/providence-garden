@@ -149,6 +149,8 @@ input[type='checkbox'] { width: 20px; height: 20px; accent-color: var(--accent);
 .gps.poor { color: var(--danger); }
 .pos-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .pos-more { display: flex; flex-wrap: wrap; gap: 4px; }
+.search-row { display: flex; gap: 8px; }
+.search-row input { flex: 1; min-width: 0; }
 .photo-row { display: flex; align-items: flex-start; gap: 8px; }
 .photo-row .thumbs-strip { flex: 1; min-width: 0; }
 
