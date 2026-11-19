@@ -1,0 +1,12 @@
+{
+  "promptDelete": false,
+  "alwaysUpdateLinks": true,
+  "newLinkFormat": "relative",
+  "useMarkdownLinks": true,
+  "defaultViewMode": "source",
+  "livePreview": true,
+  "spellcheck": false,
+  "spellcheckLanguages": [
+    "en-GB"
+  ]
+}
