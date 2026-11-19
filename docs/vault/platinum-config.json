@@ -1,0 +1,19 @@
+{
+  "project_name": "Providence Garden",
+  "scope": "A field register for the Providence Square gardens, run by the garden committee of Jacob's Island Residents Association (JIRA). The prototype, a browser-only PWA, proved capturing plants, services and wildlife features with photos and positions. This work turns it into a multi-user app on native Firebase: shared data, sign-in for the committee, a public view for observers, and a data-first UI with a map view.",
+  "analysis_type": "brownfield_modernisation",
+  "key_technologies": ["TypeScript","React","Vite","MapLibre GL","Firebase","Firestore","Cloud Storage","Terraform"],
+  "business_domains": ["Garden register","Observations","Photos","Calendar","Members and roles","Maps"],
+  "language": "en-GB",
+  "consultant": {
+    "name": "John Menzies",
+    "email": "29292945+j-menzies@users.noreply.github.com",
+    "company": "Think Platinum Consulting"
+  },
+  "lock_defaults": {
+    "level": "none",
+    "export_visibility": "internal"
+  },
+  "method_version": "1.0",
+  "created": "2026-11-05"
+}

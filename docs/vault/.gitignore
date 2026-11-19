@@ -1,0 +1,44 @@
+# Platinum Method knowledge vault — .gitignore
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Obsidian — exclude per-session and cache files; commit stable config
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
+# Default-name canvases and bases are scratch — purposeful ones get real names
+Untitled*.canvas
+Untitled*.base
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+tmp/
+
+# Backup files
+*.bak
+*.backup
+
+# Python cache (in case skills generate any)
+__pycache__/
+*.pyc
+*.pyo
+
+# Local-only config
+local-config.json
+*-local.json
